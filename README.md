@@ -32,7 +32,7 @@ pip install -r requirements.txt
 python3 main.py server --port 8080 --camoufox-port 9222
 ```
 首次启动后，访问 http://localhost:8080 进行 Google 账号登录。
-![alt text](login.png)
+![alt text](image/login.png)
 ## 使用示例
 
 ### OpenAI 兼容接口
