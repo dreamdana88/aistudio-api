@@ -7,6 +7,7 @@ function app(){return{
   msgs:[],draft:'',selectedImages:[],busy:false,
   cfg:{thinking:'off',search:'off',stream:'on',temperature:1.0,topP:1.0,maxTokens:8192,safety:'on'},
   toast:{show:false,msg:'',t:null},
+  cookieModal:{open:false,cookies:'',name:'',email:'',importing:false},
 
   init(){this.loadModels();this.loadStats();this.loadAccounts();this.loadRotation();document.addEventListener('click',()=>this.openSelect=null)},
   go(v){this.view=v;this.sidebarOpen=false;if(v==='dashboard')this.loadStats();if(v==='accounts'){this.loadAccounts();this.loadRotation()}},
@@ -34,6 +35,28 @@ function app(){return{
   async forceNext(){try{await fetch('/rotation/next',{method:'POST'});this.showToast('已切换账号');this.loadAccounts()}catch(e){this.showToast('切换失败')}},
   async activateAccount(id){try{await fetch(`/accounts/${id}/activate`,{method:'POST'});this.showToast('已激活');this.loadAccounts();this.loadRotation()}catch(e){this.showToast('激活失败')}},
   async addAccount(){try{const r=await fetch('/accounts/login/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});this.showToast(r.ok?'登录已开始！':'启动登录失败')}catch(e){this.showToast('网络错误')}},
+  async importCookies(){
+    const raw=this.cookieModal.cookies.trim();
+    if(!raw){this.showToast('请输入 Cookie');return}
+    // 支持多行：每行一个 cookie 或用分号分隔
+    const cookies=raw.split(/[\r\n]+/).map(l=>l.trim()).filter(Boolean).join('; ');
+    this.cookieModal.importing=true;
+    try{
+      const body={cookies};
+      if(this.cookieModal.name.trim()) body.name=this.cookieModal.name.trim();
+      if(this.cookieModal.email.trim()) body.email=this.cookieModal.email.trim();
+      const r=await fetch('/accounts/import-cookies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const d=await r.json();
+      if(r.ok){
+        this.showToast(`导入成功: ${d.cookie_count} 个 cookie`);
+        this.cookieModal.open=false;this.cookieModal.cookies='';this.cookieModal.name='';this.cookieModal.email='';
+        this.loadAccounts();this.loadRotation();
+      }else{
+        this.showToast(d.detail||'导入失败');
+      }
+    }catch(e){this.showToast('网络错误')}
+    finally{this.cookieModal.importing=false}
+  },
 
   resizeTa(){const el=this.$refs.ta;el.style.height='auto';el.style.height=Math.min(el.scrollHeight,200)+'px'},
   scrollDown(){setTimeout(()=>{const el=document.getElementById('chat-scroll');if(el)el.scrollTop=el.scrollHeight},50)},

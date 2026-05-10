@@ -141,6 +141,21 @@ select.sel:focus,.sel:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(
 .toast{position:fixed;bottom:16px;right:16px;background:#1e1e1e;color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none}
 .toast.show{opacity:1}
 
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;z-index:150;padding:16px}
+.modal{background:#fff;border-radius:14px;box-shadow:0 8px 40px rgba(0,0,0,.18);width:100%;max-width:520px;display:flex;flex-direction:column;max-height:90vh}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:16px}
+.modal-close{background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);padding:0 4px;line-height:1}
+.modal-close:hover{color:var(--text)}
+.modal-body{padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px}
+.modal-field{display:flex;flex-direction:column;gap:6px}
+.modal-field label{font-size:13px;font-weight:500}
+.modal-input{padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;outline:none}
+.modal-input:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(16,163,127,.15)}
+.modal-textarea{padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:monospace;outline:none;resize:vertical;line-height:1.6}
+.modal-textarea:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(16,163,127,.15)}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 20px;border-top:1px solid var(--border)}
+
 @media(max-width:768px){
   .sidebar{position:fixed;inset:0;z-index:60;transform:translateX(-100%);transition:transform .3s;width:300px}
   .sidebar.open{transform:translateX(0)}

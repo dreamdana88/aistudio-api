@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from aistudio_api.api.dependencies import get_account_service, get_runtime_state
+from aistudio_api.infrastructure.account.cookie_parser import parse_cookie_string
 
 router = APIRouter(prefix="/accounts")
 
@@ -36,6 +37,20 @@ class LoginStatusResponse(BaseModel):
 
 class UpdateAccountRequest(BaseModel):
     name: str
+
+
+class ImportCookiesRequest(BaseModel):
+    cookies: str  # "key=value; key=value; ..." 格式
+    name: str | None = None  # 可选的账号名称
+    email: str | None = None  # 可选的邮箱
+    account_id: str | None = None  # 可选的账号 ID（覆盖已有账号）
+
+
+class ImportCookiesResponse(BaseModel):
+    account_id: str
+    name: str
+    cookie_count: int
+    domain_summary: dict[str, int]  # domain -> cookie 数量
 
 
 @router.post("/login/start", response_model=LoginStartResponse)
@@ -158,4 +173,43 @@ async def update_account(
         email=account.email,
         created_at=account.created_at,
         last_used=account.last_used,
+    )
+
+
+@router.post("/import-cookies", response_model=ImportCookiesResponse)
+async def import_cookies(
+    req: ImportCookiesRequest,
+    account_service=Depends(get_account_service),
+):
+    """从 cookie 字符串导入账号。
+
+    支持格式: `key=value; key=value; ...`（浏览器开发者工具或 Cookie 编辑扩展导出格式）
+    """
+    storage_state = parse_cookie_string(req.cookies)
+    cookie_count = len(storage_state["cookies"])
+
+    if cookie_count == 0:
+        raise HTTPException(status_code=400, detail="未解析到有效 cookie")
+
+    # 统计各域名的 cookie 数量
+    domain_summary: dict[str, int] = {}
+    for c in storage_state["cookies"]:
+        d = c["domain"]
+        domain_summary[d] = domain_summary.get(d, 0) + 1
+
+    # 从 cookie 中尝试提取 email（如果有 Gmail 相关信息）
+    name = req.name or "导入的账号"
+
+    account = account_service._store.save_account(
+        name=name,
+        email=req.email,
+        storage_state=storage_state,
+        account_id=req.account_id,
+    )
+
+    return ImportCookiesResponse(
+        account_id=account.id,
+        name=account.name,
+        cookie_count=cookie_count,
+        domain_summary=domain_summary,
     )
