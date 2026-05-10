@@ -1,0 +1,12 @@
+services:
+  aistudio-api:
+    image: ghcr.io/chrysoljq/aistudio-api:latest
+    container_name: aistudio-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - aistudio-api-data:/app/data
+
+volumes:
+  aistudio-api-data:

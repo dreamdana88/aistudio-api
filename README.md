@@ -77,6 +77,18 @@ curl http://localhost:8080/v1beta/models/gemini-3-flash-preview:generateContent 
   }'
 ```
 
+## Docker 部署
+
+
+```bash
+docker run -d \
+  --name aistudio-api \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v aistudio-api-data:/app/data \
+  ghcr.io/chrysoljq/aistudio-api:latest
+```
+
 ### Python（OpenAI SDK）
 
 ```python
@@ -174,36 +186,10 @@ python3 main.py client "画一只猫" --image --save cat.png
 4. 浏览器带 cookies + BotGuard 发送请求到 Google
 5. 解析响应，按请求的 API 格式返回
 
-## 多账号
-
-管理多个 Google 账号提高吞吐量：
-
-```bash
-# 添加账号
-python3 main.py account add --email user1@gmail.com
-python3 main.py account add --email user2@gmail.com
-
-# 查看
-python3 main.py account list
-
-# 启动时自动轮询
-AISTUDIO_ACCOUNT_ROTATION_MODE=round_robin python3 main.py server
-```
-
 轮询模式：
 - `round_robin` — 轮流使用
 - `lru` — 最久未使用
 - `least_rl` — 最少被限流
-
-## 开发
-
-```bash
-# 运行测试
-python3 -m pytest tests/
-
-# 抓取 snapshot（调试用）
-python3 main.py snapshot "测试prompt"
-```
 
 ## BotGuard 原理
 
