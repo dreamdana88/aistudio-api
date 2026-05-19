@@ -113,3 +113,56 @@ class GeminiGenerateContentRequest(BaseModel):
     systemInstruction: Optional[GeminiContent] = None
     tools: Optional[list[GeminiTool]] = None
     generationConfig: Optional[GeminiGenerationConfig] = None
+
+
+class AnthropicContentBlock(BaseModel):
+    type: str
+    text: Optional[str] = None
+    source: Optional[dict[str, Any]] = None
+    id: Optional[str] = None
+    name: Optional[str] = None
+    input: Optional[dict[str, Any]] = None
+    tool_use_id: Optional[str] = None
+    content: Optional[Any] = None
+    thinking: Optional[str] = None
+
+
+class AnthropicMessage(BaseModel):
+    role: str
+    content: str | list[AnthropicContentBlock]
+
+
+class AnthropicTool(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    input_schema: Optional[dict[str, Any]] = None
+    type: Optional[str] = None
+
+
+class AnthropicToolChoice(BaseModel):
+    type: str
+    name: Optional[str] = None
+    disable_parallel_tool_use: Optional[bool] = None
+
+
+class AnthropicMessageRequest(BaseModel):
+    model: str = DEFAULT_TEXT_MODEL
+    messages: list[AnthropicMessage]
+    max_tokens: Optional[int] = None
+    stream: bool = False
+    system: Optional[str | list[Any]] = None
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    stop_sequences: Optional[list[str]] = None
+    tools: Optional[list[AnthropicTool]] = None
+    tool_choice: Optional[AnthropicToolChoice] = None
+    thinking: Optional[dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = None
+
+
+class AnthropicCountTokensRequest(BaseModel):
+    model: str = DEFAULT_TEXT_MODEL
+    messages: list[AnthropicMessage]
+    system: Optional[str | list[Any]] = None
+    tools: Optional[list[AnthropicTool]] = None

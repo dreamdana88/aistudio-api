@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from aistudio_api.infrastructure.gateway.client import AIStudioClient
 
+from .routes_anthropic import router as anthropic_router
 from .routes_accounts import router as accounts_router
 from .routes_gemini import router as gemini_router
 from .routes_openai import router as openai_router
@@ -91,6 +92,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI Studio API", lifespan=lifespan)
 app.include_router(system_router)
 app.include_router(gemini_router)
+app.include_router(anthropic_router)
 app.include_router(openai_router)
 app.include_router(accounts_router)
 

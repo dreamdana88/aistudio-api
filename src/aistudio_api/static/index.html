@@ -306,7 +306,8 @@
             <h1 style="font-size:24px;font-weight:700">账号管理</h1>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn" @click="cookieModal.open=true">导入 Cookies</button>
-              <button class="btn btn-primary" @click="addAccount()">+ 登录账号</button>
+              <button class="btn btn-primary" :disabled="loginInProgress" @click="addAccount()"
+                x-text="loginInProgress?'登录中...':'+ 登录账号'"></button>
             </div>
           </div>
           <div class="card" style="margin-bottom:24px">

@@ -190,6 +190,9 @@ class AistudioPart:
     text: str | None = None
     inline_data: tuple[str, str] | None = None
     file_id: str | None = None
+    function_call: tuple[str, object] | tuple[str, object, str] | None = None
+    function_response: tuple[str, object] | tuple[str, object, str] | None = None
+    thought_signature: str | None = None
 
     def to_wire(self):
         if self.file_id:
@@ -197,7 +200,43 @@ class AistudioPart:
         if self.inline_data:
             mime, b64 = self.inline_data
             return [None, None, [mime, b64]]
+        if self.function_call:
+            name, args = self.function_call[0], self.function_call[1]
+            call_id = self.function_call[2] if len(self.function_call) > 2 else None
+            function_call = [name, _encode_wire_args(args)]
+            if call_id:
+                function_call.append(call_id)
+            part = [None] * 11
+            part[10] = function_call
+            if self.thought_signature:
+                while len(part) <= 14:
+                    part.append(None)
+                part[14] = self.thought_signature
+            return part
+        if self.function_response:
+            name, response = self.function_response[0], self.function_response[1]
+            call_id = self.function_response[2] if len(self.function_response) > 2 else None
+            function_response = [name, _encode_wire_args(response)]
+            if call_id:
+                function_response.append(call_id)
+            part = [None] * 12
+            part[11] = function_response
+            return part
         return [None, self.text]
+
+
+def _encode_wire_args(value):
+    if isinstance(value, dict):
+        return [[[key, _encode_wire_value(val)] for key, val in value.items()]]
+    return value
+
+
+def _encode_wire_value(value):
+    if isinstance(value, dict):
+        return [None, _encode_wire_args(value)]
+    if isinstance(value, list):
+        return [None, None, [_encode_wire_value(item) for item in value]]
+    return [None, None, value]
 
 
 @dataclass

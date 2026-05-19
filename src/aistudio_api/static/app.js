@@ -9,6 +9,7 @@ function app() {
     cfg: { thinking: 'off', search: 'off', stream: 'on', temperature: 1.0, topP: 0.95, maxTokens: 32768, safety: 'on' },
     toast: { show: false, msg: '', t: null },
     cookieModal: { open: false, cookies: '', name: '', email: '', importing: false },
+    loginInProgress: false,
 
     init() {
       this.loadFromCache();
@@ -114,7 +115,67 @@ function app() {
     async saveRotation() { try { await fetch('/rotation/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: this.rotCfg.mode, cooldown_seconds: this.rotCfg.cooldown }) }); this.showToast('已保存'); this.loadRotation() } catch (e) { this.showToast('保存失败') } },
     async forceNext() { try { await fetch('/rotation/next', { method: 'POST' }); this.showToast('已切换账号'); this.loadAccounts() } catch (e) { this.showToast('切换失败') } },
     async activateAccount(id) { try { await fetch(`/accounts/${id}/activate`, { method: 'POST' }); this.showToast('已激活'); this.loadAccounts(); this.loadRotation() } catch (e) { this.showToast('激活失败') } },
-    async addAccount() { try { const r = await fetch('/accounts/login/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }); this.showToast(r.ok ? '登录已开始！' : '启动登录失败') } catch (e) { this.showToast('网络错误') } },
+    async addAccount() {
+      if (this.loginInProgress) return;
+      this.loginInProgress = true;
+      try {
+        const r = await fetch('/accounts/login/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.session_id) {
+          this.showToast(d.detail || '启动登录失败');
+          return;
+        }
+        this.showToast('登录已开始，请在弹出的浏览器完成登录');
+        await this.pollLoginStatus(d.session_id);
+      } catch (e) {
+        this.showToast('网络错误');
+      } finally {
+        this.loginInProgress = false;
+      }
+    },
+    async pollLoginStatus(sessionId) {
+      const deadline = Date.now() + 305000;
+      while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          const r = await fetch(`/accounts/login/status/${sessionId}`);
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            this.showToast(d.detail || '查询登录状态失败');
+            return;
+          }
+          if (d.status === 'completed') {
+            if (d.account_id) {
+              await fetch(`/accounts/${d.account_id}/activate`, { method: 'POST' });
+            }
+            this.showToast(`登录成功${d.email ? ': ' + d.email : ''}`);
+            this.loadAccounts();
+            this.loadRotation();
+            return;
+          }
+          if (d.status === 'failed') {
+            this.showToast(this.loginErrorMessage(d.error));
+            return;
+          }
+        } catch (e) {
+          this.showToast('查询登录状态失败');
+          return;
+        }
+      }
+      this.showToast('登录仍未完成，请稍后刷新账号列表');
+    },
+    loginErrorMessage(error) {
+      if (!error) return '登录失败';
+      if (error.includes('XServer') || error.includes('Missing X server') || error.includes('$DISPLAY')) {
+        return '登录浏览器启动失败：Docker 容器没有可用显示服务。请导入 Cookies，或配置 XServer 后重启容器。';
+      }
+      const msg = `登录失败：${error}`;
+      return msg.length > 180 ? `${msg.slice(0, 177)}...` : msg;
+    },
     async importCookies() {
       const raw = this.cookieModal.cookies.trim();
       if (!raw) { this.showToast('请输入 Cookie'); return }

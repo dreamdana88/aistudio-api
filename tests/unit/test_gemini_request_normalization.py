@@ -115,7 +115,7 @@ def test_normalize_openai_tools_encodes_function_tools_to_wire():
     ]
 
 
-def test_normalize_openai_tools_encodes_required_to_schema_index_7():
+def test_normalize_openai_tools_omits_required_from_function_schema_wire():
     req = ChatRequest(
         messages=[{"role": "user", "content": "hello"}],
         tools=[
@@ -135,4 +135,4 @@ def test_normalize_openai_tools_encodes_required_to_schema_index_7():
     )
 
     schema = normalize_openai_tools(req.tools)[0][1][0][2]
-    assert schema[7] == ["ref"]
+    assert len(schema) <= 7 or schema[7] is None

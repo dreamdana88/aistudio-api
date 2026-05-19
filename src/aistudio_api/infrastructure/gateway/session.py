@@ -716,6 +716,10 @@ class BrowserSession:
                     hash_parts.append(part.inline_data[1])  # base64 data
                 if part.text:
                     hash_parts.append(str(part.text))
+                if part.function_call:
+                    hash_parts.append(json.dumps(part.function_call, ensure_ascii=False, sort_keys=True))
+                if part.function_response:
+                    hash_parts.append(json.dumps(part.function_response, ensure_ascii=False, sort_keys=True))
         content_hash = sha256(" ".join(hash_parts).encode("utf-8")).hexdigest()
 
         page.evaluate(

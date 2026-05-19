@@ -90,4 +90,6 @@ def classify_chunk(chunk: list) -> tuple[str, object]:
         return ("tool_calls", candidate.function_calls)
     if candidate.text:
         return ("body", candidate.text)
+    if candidate.thought_signature:
+        return ("thought_signature", candidate.thought_signature)
     return ("unknown", "")

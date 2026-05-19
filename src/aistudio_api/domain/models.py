@@ -27,6 +27,7 @@ class Candidate:
     reasoning_images: list[GeneratedImage] = field(default_factory=list)
     function_calls: list[dict[str, Any]] = field(default_factory=list)
     function_responses: list[dict[str, Any]] = field(default_factory=list)
+    thought_signature: str = ""
     sources: list[dict] = field(default_factory=list)
     code_output: str = ""
     finish_reason: int | None = None
@@ -90,6 +91,7 @@ class ResponsePart:
     thought: bool = False
     function_call: dict[str, Any] | None = None
     function_response: dict[str, Any] | None = None
+    thought_signature: str = ""
     executable_code: Any = None
     code_execution_result: Any = None
 
@@ -134,6 +136,13 @@ def _parse_response_part(raw_part: Any) -> ResponsePart:
     function_call = _coerce_wire_payload(raw_part[3] if len(raw_part) > 3 else None, "functionCall")
     if function_call is None and len(raw_part) > 10:
         function_call = _coerce_wire_payload(raw_part[10], "functionCall")
+    thought_signature = raw_part[14] if len(raw_part) > 14 and isinstance(raw_part[14], str) else ""
+    if function_call is not None:
+        if thought_signature:
+            function_call["thought_signature"] = thought_signature
+        raw = function_call.get("raw")
+        if isinstance(raw, list) and len(raw) > 2 and isinstance(raw[2], str):
+            function_call["call_id"] = raw[2]
     function_response = _coerce_wire_payload(raw_part[4] if len(raw_part) > 4 else None, "functionResponse")
     executable_code = raw_part[8] if len(raw_part) > 8 else None
     code_execution_result = raw_part[9] if len(raw_part) > 9 else None
@@ -144,6 +153,7 @@ def _parse_response_part(raw_part: Any) -> ResponsePart:
         thought=thought,
         function_call=function_call,
         function_response=function_response,
+        thought_signature=thought_signature,
         executable_code=executable_code,
         code_execution_result=code_execution_result,
     )
@@ -177,6 +187,8 @@ def _coerce_wire_payload(raw_value: Any, payload_type: str) -> dict[str, Any] | 
                     payload["arguments"] = second
             elif second is not None:
                 payload["args"] = second
+        if len(raw_value) > 2 and isinstance(raw_value[2], str):
+            payload["call_id"] = raw_value[2]
         return payload
     return {"type": payload_type, "raw": raw_value}
 
@@ -252,6 +264,7 @@ def parse_response_chunk(chunk: list) -> Candidate:
     reasoning_images = []
     function_calls = []
     function_responses = []
+    thought_signature = ""
     code_outputs = []
 
     for raw_part in raw_parts if isinstance(raw_parts, list) else []:
@@ -274,6 +287,8 @@ def parse_response_chunk(chunk: list) -> Candidate:
             function_calls.append(part.function_call)
         if part.function_response:
             function_responses.append(part.function_response)
+        if part.thought_signature:
+            thought_signature = part.thought_signature
         if part.text:
             if part.thought:
                 thinking_parts.append(part.text)
@@ -286,6 +301,7 @@ def parse_response_chunk(chunk: list) -> Candidate:
     candidate.reasoning_images = reasoning_images
     candidate.function_calls = function_calls
     candidate.function_responses = function_responses
+    candidate.thought_signature = thought_signature
     candidate.code_output = "\n".join(code_outputs)
     candidate.finish_reason = raw_candidate[1] if len(raw_candidate) > 1 and isinstance(raw_candidate[1], int) else None
     candidate.finish_message = raw_candidate[3] if len(raw_candidate) > 3 and isinstance(raw_candidate[3], str) else ""
@@ -320,6 +336,8 @@ def parse_text_output(raw: str) -> ModelOutput:
             merged.function_calls.extend(parsed.function_calls)
         if parsed.function_responses:
             merged.function_responses.extend(parsed.function_responses)
+        if parsed.thought_signature:
+            merged.thought_signature = parsed.thought_signature
         if parsed.code_output:
             merged.code_output = "\n".join(filter(None, [merged.code_output, parsed.code_output]))
         if parsed.finish_reason is not None:

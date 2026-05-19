@@ -151,6 +151,9 @@ class AistudioWireCodec:
 
         if "image" not in model.lower():
             request.tools = tools if tools else None
+            if request.tools:
+                request.generation_config.response_mime_type = None
+                request.generation_config.response_schema = None
 
         return self.encode(request)
 
@@ -192,6 +195,26 @@ class AistudioWireCodec:
             and len(raw_part[2]) >= 2
         ):
             return AistudioPart(inline_data=(raw_part[2][0], raw_part[2][1]))
+        if isinstance(raw_part, list):
+            raw_function_call = None
+            if len(raw_part) > 10 and isinstance(raw_part[10], list):
+                raw_function_call = raw_part[10]
+            elif len(raw_part) > 3 and isinstance(raw_part[3], list):
+                raw_function_call = raw_part[3]
+            if raw_function_call is not None:
+                name = raw_function_call[0] if raw_function_call and isinstance(raw_function_call[0], str) else "unknown"
+                args = raw_function_call[1] if len(raw_function_call) > 1 else {}
+                call_id = raw_function_call[2] if len(raw_function_call) > 2 and isinstance(raw_function_call[2], str) else None
+                signature = raw_part[14] if len(raw_part) > 14 and isinstance(raw_part[14], str) else None
+                function_call = (name, args, call_id) if call_id else (name, args)
+                return AistudioPart(function_call=function_call, thought_signature=signature)
+        if isinstance(raw_part, list) and (
+            len(raw_part) > 11 and isinstance(raw_part[11], list) or len(raw_part) > 4 and isinstance(raw_part[4], list)
+        ):
+            raw_function_response = raw_part[11] if len(raw_part) > 11 and isinstance(raw_part[11], list) else raw_part[4]
+            name = raw_function_response[0] if raw_function_response and isinstance(raw_function_response[0], str) else "unknown"
+            response = raw_function_response[1] if len(raw_function_response) > 1 else {}
+            return AistudioPart(function_response=(name, response))
         if isinstance(raw_part, list) and len(raw_part) > 1:
             return AistudioPart(text=raw_part[1])
         return AistudioPart()

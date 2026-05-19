@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -24,7 +25,6 @@ SCHEMA_TYPE_CODES = {
     "array": 5,
     "object": 6,
 }
-
 
 def data_uri_to_file(uri: str, tmp_dir: str = "/tmp") -> str:
     match = re.match(r"data:(.+?);base64,(.+)", uri, re.DOTALL)
@@ -152,7 +152,7 @@ def inline_data_to_file(mime_type: str, data: str, tmp_dir: str = "/tmp") -> str
     return path
 
 
-def encode_schema_to_wire(schema: dict) -> list:
+def encode_schema_to_wire(schema: dict, *, include_required: bool = True) -> list:
     schema_type = schema.get("type")
     type_code = SCHEMA_TYPE_CODES.get(schema_type, 0)
     wire = [type_code]
@@ -160,16 +160,20 @@ def encode_schema_to_wire(schema: dict) -> list:
     if schema_type == "array" and isinstance(schema.get("items"), dict):
         while len(wire) <= 5:
             wire.append(None)
-        wire[5] = encode_schema_to_wire(schema["items"])
+        wire[5] = encode_schema_to_wire(schema["items"], include_required=include_required)
 
     properties = schema.get("properties")
     if isinstance(properties, dict):
         while len(wire) <= 6:
             wire.append(None)
-        wire[6] = [[name, encode_schema_to_wire(prop)] for name, prop in properties.items() if isinstance(prop, dict)]
+        wire[6] = [
+            [name, encode_schema_to_wire(prop, include_required=include_required)]
+            for name, prop in properties.items()
+            if isinstance(prop, dict)
+        ]
 
     required = schema.get("required")
-    if isinstance(required, list):
+    if include_required and isinstance(required, list):
         while len(wire) <= 7:
             wire.append(None)
         wire[7] = list(required)
@@ -197,7 +201,7 @@ def encode_function_declaration_to_wire(declaration: dict) -> list:
     if isinstance(parameters, dict):
         while len(wire) <= 2:
             wire.append(None)
-        wire[2] = encode_schema_to_wire(parameters)
+        wire[2] = encode_schema_to_wire(parameters, include_required=False)
 
     return wire
 
@@ -225,6 +229,243 @@ def normalize_openai_tools(tools) -> list[list] | None:
         return None
 
     return [[None, [encode_function_declaration_to_wire(decl) for decl in function_declarations]]]
+
+
+def normalize_anthropic_request(req, tmp_dir: str = "/tmp", tool_context: dict[str, dict] | None = None) -> dict:
+    system_text = _anthropic_system_text(req.system)
+    contents: list[AistudioContent] = []
+    capture_texts: list[str] = [system_text] if system_text else []
+    capture_images: list[str] = []
+    cleanup_paths: list[str] = []
+    pending_tool_parts: list[AistudioPart] = []
+    tool_id_to_name = _anthropic_tool_id_name_map(req.messages)
+
+    def flush_tool_parts():
+        if pending_tool_parts:
+            contents.append(AistudioContent(role="user", parts=list(pending_tool_parts)))
+            pending_tool_parts.clear()
+
+    for message in req.messages:
+        role = (message.role or "user").lower()
+        content = message.content
+
+        if role == "user" and isinstance(content, list):
+            tool_results = [block for block in content if block.type == "tool_result"]
+            other_blocks = [block for block in content if block.type != "tool_result"]
+            for block in tool_results:
+                function_name = tool_id_to_name.get(block.tool_use_id or "") or block.name or "unknown_function"
+                capture_text = _anthropic_tool_result_text(block.content)
+                text = capture_text or json.dumps(_anthropic_tool_result_response(block.content), ensure_ascii=False)
+                pending_tool_parts.append(AistudioPart(text=f"Tool result for {function_name}: {text}"))
+                if capture_text:
+                    capture_texts.append(capture_text)
+            if tool_results and not other_blocks:
+                continue
+            if tool_results:
+                flush_tool_parts()
+                content = other_blocks
+        else:
+            flush_tool_parts()
+
+        parts: list[AistudioPart] = []
+        text_parts: list[str] = []
+        image_paths: list[str] = []
+
+        if isinstance(content, str):
+            if content:
+                parts.append(AistudioPart(text=content))
+                text_parts.append(content)
+        elif isinstance(content, list):
+            for block in content:
+                if block.type == "text" and block.text:
+                    parts.append(AistudioPart(text=block.text))
+                    text_parts.append(block.text)
+                elif block.type == "image" and block.source:
+                    image_path = _anthropic_image_source_to_file(block.source, tmp_dir=tmp_dir)
+                    if image_path:
+                        image_paths.append(image_path)
+                        cleanup_paths.append(image_path)
+                elif role == "assistant" and block.type == "tool_use" and block.name:
+                    parts.append(
+                        AistudioPart(
+                            text=(
+                                f"Tool call {block.name} with input: "
+                                f"{json.dumps(block.input or {}, ensure_ascii=False)}"
+                            )
+                        )
+                    )
+
+        for image_path in image_paths:
+            parts.append(_image_path_to_part(image_path))
+
+        if not parts:
+            continue
+
+        mapped_role = "model" if role == "assistant" else "user"
+        contents.append(AistudioContent(role=mapped_role, parts=parts))
+        capture_texts.extend(text_parts)
+        capture_images.extend(image_paths)
+
+    flush_tool_parts()
+    capture_prompt = "\n".join(text for text in capture_texts if text) or "你好"
+    model = req.model
+
+    return {
+        "model": model,
+        "system_instruction": (
+            AistudioContent(role="user", parts=[AistudioPart(text=system_text)])
+            if system_text
+            else None
+        ),
+        "contents": contents or [AistudioContent(role="user", parts=[AistudioPart(text="你好")])],
+        "capture_prompt": capture_prompt,
+        "capture_images": capture_images or None,
+        "cleanup_paths": cleanup_paths,
+        "tools": normalize_anthropic_tools(req.tools, req.tool_choice),
+        "temperature": req.temperature,
+        "top_p": req.top_p,
+        "top_k": req.top_k,
+        "max_tokens": req.max_tokens,
+    }
+
+
+def normalize_anthropic_tools(tools, tool_choice=None) -> list[list] | None:
+    if not tools or (tool_choice and getattr(tool_choice, "type", None) == "none"):
+        return None
+
+    wire_tools: list[list] = []
+    function_declarations: list[dict[str, Any]] = []
+
+    for tool in tools:
+        tool_type = (tool.type or "").lower()
+        name = tool.name or ""
+        if tool_type.startswith("web_search") or name == "web_search":
+            wire_tools.append(TOOLS_TEMPLATES["google_search"])
+            continue
+        if not name:
+            continue
+        declaration = {"name": name, "description": tool.description}
+        if tool.input_schema:
+            declaration["parameters"] = _sanitize_schema_for_wire(tool.input_schema)
+        else:
+            declaration["parameters"] = {"type": "object", "properties": {}}
+        function_declarations.append(declaration)
+
+    if function_declarations:
+        wire_tools.insert(0, [None, [encode_function_declaration_to_wire(decl) for decl in function_declarations]])
+
+    return wire_tools or None
+
+
+def _anthropic_system_text(system) -> str | None:
+    if isinstance(system, str):
+        return system or None
+    if isinstance(system, list):
+        texts: list[str] = []
+        for item in system:
+            if isinstance(item, str):
+                texts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if text:
+                    texts.append(str(text))
+            else:
+                text = getattr(item, "text", None)
+                if text:
+                    texts.append(str(text))
+        return "\n".join(texts) if texts else None
+    return None
+
+
+def _anthropic_tool_id_name_map(messages) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for message in messages:
+        if (message.role or "").lower() != "assistant" or not isinstance(message.content, list):
+            continue
+        for block in message.content:
+            if block.type == "tool_use" and block.id and block.name:
+                mapping[block.id] = block.name
+    return mapping
+
+
+def _anthropic_image_source_to_file(source: dict[str, Any], tmp_dir: str = "/tmp") -> str | None:
+    source_type = source.get("type")
+    if source_type == "base64" and source.get("media_type") and source.get("data"):
+        return inline_data_to_file(source["media_type"], source["data"], tmp_dir=tmp_dir)
+    if source_type == "url" and source.get("url"):
+        return url_to_file(source["url"], tmp_dir=tmp_dir)
+    return None
+
+
+def _anthropic_tool_result_response(content) -> dict[str, Any]:
+    if isinstance(content, dict):
+        return content
+    text = _anthropic_tool_result_text(content)
+    if text:
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return {"result": text}
+        return parsed if isinstance(parsed, dict) else {"result": parsed}
+    if content is None:
+        return {"result": ""}
+    return {"result": content}
+
+
+def _anthropic_tool_result_text(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if text:
+                    texts.append(str(text))
+            else:
+                text = getattr(item, "text", None)
+                if text:
+                    texts.append(str(text))
+        return "\n".join(texts)
+    return ""
+
+
+def _sanitize_schema_for_wire(schema: dict | None) -> dict:
+    if not isinstance(schema, dict):
+        return {"type": "object", "properties": {}}
+
+    variants = schema.get("anyOf") or schema.get("oneOf")
+    if isinstance(variants, list):
+        for variant in variants:
+            if isinstance(variant, dict) and variant.get("type") != "null":
+                return _sanitize_schema_for_wire(variant)
+
+    schema_type = schema.get("type")
+    if isinstance(schema_type, list):
+        schema_type = next((item for item in schema_type if item != "null"), None)
+    if schema_type not in SCHEMA_TYPE_CODES:
+        if isinstance(schema.get("properties"), dict):
+            schema_type = "object"
+        elif isinstance(schema.get("items"), dict):
+            schema_type = "array"
+        else:
+            schema_type = "string"
+
+    sanitized: dict[str, Any] = {"type": schema_type}
+    if schema_type == "object":
+        properties: dict[str, Any] = {}
+        raw_properties = schema.get("properties")
+        if isinstance(raw_properties, dict):
+            for name, prop in raw_properties.items():
+                if isinstance(name, str):
+                    properties[name] = _sanitize_schema_for_wire(prop if isinstance(prop, dict) else None)
+        sanitized["properties"] = properties
+        required = schema.get("required")
+        if isinstance(required, list):
+            sanitized["required"] = [name for name in required if isinstance(name, str) and name in properties]
+    elif schema_type == "array":
+        sanitized["items"] = _sanitize_schema_for_wire(schema.get("items") if isinstance(schema.get("items"), dict) else None)
+    return sanitized
 
 
 def normalize_gemini_request(req, requested_model: str, tmp_dir: str = "/tmp") -> dict:

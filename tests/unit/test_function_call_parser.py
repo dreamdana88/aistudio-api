@@ -92,5 +92,7 @@ def test_parse_response_chunk_extracts_real_aistudio_function_call_shape():
             "raw": ["getWeather", [[["city", [None, None, "Shanghai"]]]], "e6ni61kr"],
             "name": "getWeather",
             "args": {"city": "Shanghai"},
+            "call_id": "e6ni61kr",
+            "thought_signature": "EiYKJGUyNDgzMGE3LTVjZDYtNDJmZS05OThiLWVlNTM5ZTcyYjljMw==",
         }
     ]

@@ -123,7 +123,7 @@ class StreamingGateway:
                     if usage:
                         latest_usage = usage
                     ctype, text = classify_chunk(parsed_chunk)
-                    if ctype in ("body", "thinking", "tool_calls") and text:
+                    if ctype in ("body", "thinking", "tool_calls", "thought_signature") and text:
                         yield (ctype, text)
 
         raw_response = "".join(raw_parts)
