@@ -17,7 +17,10 @@ from aistudio_api.infrastructure.gateway.model_defaults import resolve_model_def
 from aistudio_api.infrastructure.gateway.request_rewriter import build_tools_from_names
 from aistudio_api.infrastructure.gateway.wire_types import (
     AistudioContent,
+    AistudioImageOutputMode,
     AistudioPart,
+    AistudioThinkingConfig,
+    ThinkingLevel,
 )
 from aistudio_api.infrastructure.gateway.wire_codec import TOOLS_TEMPLATES
 
@@ -209,6 +212,128 @@ def encode_function_declaration_to_wire(declaration: dict) -> list:
         wire[2] = encode_schema_to_wire(parameters, include_required=False)
 
     return wire
+
+
+def _normalize_gemini_modalities(value: Any) -> AistudioImageOutputMode | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("generationConfig.responseModalities must be a list")
+
+    modalities = {str(item).strip().upper() for item in value if str(item).strip()}
+    if not modalities:
+        return None
+    unknown = modalities - {"TEXT", "IMAGE"}
+    if unknown:
+        raise ValueError(f"Unsupported response modalities: {', '.join(sorted(unknown))}")
+    if "IMAGE" not in modalities:
+        return None
+    if "TEXT" in modalities:
+        return AistudioImageOutputMode.text_and_image()
+    return AistudioImageOutputMode.image_only()
+
+
+def _normalize_gemini_thinking_config(value: Any) -> list[Any] | dict[str, Any]:
+    if value is None or isinstance(value, list):
+        return value
+    if not isinstance(value, dict):
+        raise ValueError("generationConfig.thinkingConfig must be an object or wire array")
+
+    raw_level = value.get("thinkingLevel", value.get("level", ThinkingLevel.HIGH))
+    raw_mode = value.get("mode", 1)
+    if isinstance(raw_level, ThinkingLevel):
+        level = raw_level
+    elif isinstance(raw_level, int):
+        level = ThinkingLevel(raw_level)
+    else:
+        level = ThinkingLevel[str(raw_level).strip().upper()]
+    return AistudioThinkingConfig(level=level, mode=int(raw_mode)).to_wire()
+
+
+def _normalize_gemini_image_config(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("generationConfig.imageConfig must be an object")
+
+    aspect_ratio = value.get("aspectRatio")
+    image_size = value.get("imageSize")
+    person_generation = value.get("personGeneration")
+    if person_generation not in (None, ""):
+        raise ValueError("generationConfig.imageConfig.personGeneration is not supported yet")
+
+    normalized: dict[str, Any] = {}
+    if aspect_ratio is not None or image_size is not None:
+        normalized["output_resolution"] = [aspect_ratio, image_size]
+    return normalized
+
+
+def _extract_google_search_tool_names(tool: Any, *, is_image_model: bool) -> list[str]:
+    if tool.googleSearchRetrieval is not None:
+        return ["google_search"]
+
+    config = tool.googleSearch
+    if config is None:
+        return []
+    if not is_image_model or not isinstance(config, dict):
+        return ["google_search"]
+
+    search_types = config.get("searchTypes")
+    if not isinstance(search_types, dict):
+        return ["google_search"]
+
+    web_enabled = search_types.get("webSearch") is not None
+    image_enabled = search_types.get("imageSearch") is not None
+    if web_enabled and image_enabled:
+        return ["google_search_and_image_search"]
+    if image_enabled:
+        return ["image_search"]
+    return ["google_search"]
+
+
+def _filter_default_tools_for_model(tool_names: tuple[str, ...], *, is_image_model: bool) -> list[str]:
+    names = [str(name).strip() for name in tool_names if str(name).strip()]
+    if not is_image_model:
+        return names
+    allowed = {"google_search", "image_search", "google_search_and_image_search"}
+    return [name for name in names if name in allowed]
+
+
+_GEMINI_SAFETY_CATEGORY_MAP = {
+    "HARM_CATEGORY_HARASSMENT": 7,
+    "HARM_CATEGORY_HATE_SPEECH": 8,
+    "HARM_CATEGORY_SEXUALLY_EXPLICIT": 9,
+    "HARM_CATEGORY_DANGEROUS_CONTENT": 10,
+}
+
+_GEMINI_SAFETY_THRESHOLD_MAP = {
+    "BLOCK_LOW_AND_ABOVE": 1,
+    "BLOCK_MEDIUM_AND_ABOVE": 2,
+    "BLOCK_ONLY_HIGH": 3,
+    "BLOCK_NONE": 4,
+    "OFF": 5,
+}
+
+
+def _normalize_gemini_safety_settings(value: Any) -> list[list[Any]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError("safetySettings must be a list")
+
+    normalized: list[list[Any]] = []
+    for item in value:
+        if not hasattr(item, "category") or not hasattr(item, "threshold"):
+            raise ValueError(f"Unsupported safety setting entry: {item!r}")
+
+        category = _GEMINI_SAFETY_CATEGORY_MAP.get(str(item.category).strip().upper())
+        if category is None:
+            raise ValueError(f"Unsupported safety category: {item.category}")
+        threshold = _GEMINI_SAFETY_THRESHOLD_MAP.get(str(item.threshold).strip().upper())
+        if threshold is None:
+            raise ValueError(f"Unsupported safety threshold: {item.threshold}")
+        normalized.append([None, None, category, threshold])
+    return normalized
 
 
 def normalize_openai_tools(tools) -> list[list] | None:
@@ -534,8 +659,9 @@ def normalize_gemini_request(req, requested_model: str, tmp_dir: str = "/tmp") -
                 builtin_tool_names.append("code_execution")
             if tool.functionDeclarations:
                 tools.append([None, [encode_function_declaration_to_wire(decl) for decl in tool.functionDeclarations]])
-            if tool.googleSearch is not None or tool.googleSearchRetrieval is not None:
-                builtin_tool_names.append("google_search")
+            builtin_tool_names.extend(
+                _extract_google_search_tool_names(tool, is_image_model=model_defaults.is_image_model)
+            )
             if tool.googleMaps is not None:
                 builtin_tool_names.append("google_maps")
             if tool.urlContext is not None:
@@ -550,14 +676,26 @@ def normalize_gemini_request(req, requested_model: str, tmp_dir: str = "/tmp") -
                 )
 
     if req.tools is None and model_defaults.default_tools:
-        tools = build_tools_from_names(
+        default_tool_names = _filter_default_tools_for_model(
             model_defaults.default_tools,
-            model=model,
             is_image_model=model_defaults.is_image_model,
+        )
+        tools = (
+            build_tools_from_names(
+                default_tool_names,
+                model=model,
+                is_image_model=model_defaults.is_image_model,
+            )
+            if default_tool_names
+            else []
         )
 
     generation_config = req.generationConfig
-    generation_config_overrides = model_defaults.generation_config_overrides() or None
+    generation_config_overrides = {
+        key: value
+        for key, value in model_defaults.generation_config_overrides().items()
+        if value is not None
+    } or None
     if generation_config is not None:
         if generation_config_overrides is None:
             generation_config_overrides = {}
@@ -590,13 +728,22 @@ def normalize_gemini_request(req, requested_model: str, tmp_dir: str = "/tmp") -
         if generation_config.mediaResolution is not None:
             generation_config_overrides["media_resolution"] = generation_config.mediaResolution
         if generation_config.thinkingConfig is not None:
-            generation_config_overrides["thinking_config"] = generation_config.thinkingConfig
+            generation_config_overrides["thinking_config"] = _normalize_gemini_thinking_config(
+                generation_config.thinkingConfig
+            )
+        if generation_config.responseModalities is not None:
+            image_output_mode = _normalize_gemini_modalities(generation_config.responseModalities)
+            if image_output_mode is not None:
+                generation_config_overrides["image_output_mode"] = image_output_mode
+        if generation_config.imageConfig is not None:
+            generation_config_overrides.update(_normalize_gemini_image_config(generation_config.imageConfig))
 
     return {
         "model": model,
         "contents": contents,
         "system_instruction": system_instruction,
         "tools": tools if tools is not None else None,
+        "safety_settings": _normalize_gemini_safety_settings(req.safetySettings) if req.safetySettings is not None else None,
         "capture_prompt": capture_prompt,
         "capture_images": capture_images or None,
         "cleanup_paths": cleanup_paths,

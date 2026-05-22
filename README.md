@@ -55,6 +55,8 @@ cd aistudio-api
 # 安装依赖
 pip install -r requirements.txt
 
+# 登录 Google 账号
+python3 main.py login
 # 启动服务
 python3 main.py server --port 8080
 ```

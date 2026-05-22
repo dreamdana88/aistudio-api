@@ -10,11 +10,11 @@ from pathlib import Path
 
 from aistudio_api.config import settings
 from aistudio_api.domain.errors import RequestError, classify_error
-from aistudio_api.domain.models import parse_chunk_usage
+from aistudio_api.domain.models import parse_chunk_usage, parse_response_chunk
 from aistudio_api.infrastructure.gateway.capture import CapturedRequest
 from aistudio_api.infrastructure.gateway.request_rewriter import modify_body
 from aistudio_api.infrastructure.gateway.session import BrowserSession
-from aistudio_api.infrastructure.gateway.stream_parser import IncrementalJSONStreamParser, classify_chunk
+from aistudio_api.infrastructure.gateway.stream_parser import IncrementalJSONStreamParser
 from aistudio_api.infrastructure.gateway.wire_types import AistudioContent
 
 logger = logging.getLogger("aistudio")
@@ -77,6 +77,7 @@ class StreamingGateway:
         contents: list[AistudioContent] | None = None,
         system_instruction_content: AistudioContent | None = None,
         tools: list[list] | None = None,
+        safety_settings: list[list] | None = None,
         temperature: float | None = None,
         top_p: float | None = None,
         top_k: int | None = None,
@@ -96,6 +97,7 @@ class StreamingGateway:
             system_instruction=system_instruction,
             system_instruction_content=system_instruction_content,
             tools=tools,
+            safety_settings=safety_settings,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -122,9 +124,19 @@ class StreamingGateway:
                     usage = parse_chunk_usage(parsed_chunk)
                     if usage:
                         latest_usage = usage
-                    ctype, text = classify_chunk(parsed_chunk)
-                    if ctype in ("body", "thinking", "tool_calls", "thought_signature") and text:
-                        yield (ctype, text)
+                    candidate = parse_response_chunk(parsed_chunk)
+                    if candidate.thinking:
+                        yield ("thinking", candidate.thinking)
+                    if candidate.reasoning_images:
+                        yield ("reasoning_images", candidate.reasoning_images)
+                    if candidate.function_calls:
+                        yield ("tool_calls", candidate.function_calls)
+                    if candidate.images:
+                        yield ("images", candidate.images)
+                    if candidate.text:
+                        yield ("body", candidate.text)
+                    if candidate.thought_signature:
+                        yield ("thought_signature", candidate.thought_signature)
 
         raw_response = "".join(raw_parts)
         _dump_stream_exchange(

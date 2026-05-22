@@ -142,9 +142,15 @@ class GeminiFunctionResponsePayload(BaseModel):
     response: Any | None = None
 
 
+class GeminiInlineDataResponse(BaseModel):
+    mimeType: str
+    data: str
+
+
 class GeminiPartResponse(BaseModel):
     text: str | None = None
     thought: bool | None = None
+    inlineData: GeminiInlineDataResponse | None = None
     functionCall: GeminiFunctionCallPayload | None = None
     functionResponse: GeminiFunctionResponsePayload | None = None
 

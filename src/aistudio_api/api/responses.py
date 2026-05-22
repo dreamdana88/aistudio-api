@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import time
 import uuid
@@ -18,6 +19,7 @@ from aistudio_api.api.response_models import (
     ErrorResponse,
     GeminiFunctionCallPayload,
     GeminiFunctionResponsePayload,
+    GeminiInlineDataResponse,
     GeminiPartResponse,
     GeminiUsageMetadata,
     OpenAIChatChoice,
@@ -30,6 +32,7 @@ from aistudio_api.api.response_models import (
     OpenAIToolCall,
     OpenAIUsage,
 )
+from aistudio_api.domain.models import GeneratedImage
 
 
 def new_chat_id() -> str:
@@ -251,12 +254,33 @@ def to_gemini_parts(
     function_calls: list[dict[str, Any]] | None = None,
     function_responses: list[dict[str, Any]] | None = None,
     thinking: str = "",
+    images: list[GeneratedImage] | None = None,
+    reasoning_images: list[GeneratedImage] | None = None,
 ) -> list[GeminiPartResponse]:
     parts: list[GeminiPartResponse] = []
     if thinking:
         parts.append(GeminiPartResponse(text=thinking, thought=True))
+    for image in reasoning_images or []:
+        parts.append(
+            GeminiPartResponse(
+                thought=True,
+                inlineData=GeminiInlineDataResponse(
+                    mimeType=image.mime,
+                    data=base64.b64encode(image.data).decode("ascii"),
+                ),
+            )
+        )
     if content:
         parts.append(GeminiPartResponse(text=content))
+    for image in images or []:
+        parts.append(
+            GeminiPartResponse(
+                inlineData=GeminiInlineDataResponse(
+                    mimeType=image.mime,
+                    data=base64.b64encode(image.data).decode("ascii"),
+                )
+            )
+        )
     for function_call in function_calls or []:
         payload = GeminiFunctionCallPayload(name=function_call.get("name", "unknown"))
         if "args" in function_call:

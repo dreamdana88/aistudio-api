@@ -58,6 +58,7 @@ async def handle_gemini_generate_content(
                     contents=normalized["contents"],
                     system_instruction_content=normalized["system_instruction"],
                     tools=normalized["tools"],
+                    safety_settings=normalized["safety_settings"],
                     temperature=normalized["temperature"],
                     top_p=normalized["top_p"],
                     top_k=normalized["top_k"],
@@ -77,6 +78,8 @@ async def handle_gemini_generate_content(
                                     function_calls=output.function_calls,
                                     function_responses=output.function_responses,
                                     thinking=output.thinking,
+                                    images=output.images,
+                                    reasoning_images=output.reasoning_images,
                                 ),
                             ),
                             finishReason="STOP" if not output.function_calls else "FUNCTION_CALL",
@@ -132,6 +135,7 @@ def _build_gemini_streaming_response(*, client: AIStudioClient, normalized: dict
                             contents=normalized["contents"],
                             system_instruction_content=normalized["system_instruction"],
                             tools=normalized["tools"],
+                            safety_settings=normalized["safety_settings"],
                             temperature=normalized["temperature"],
                             top_p=normalized["top_p"],
                             top_k=normalized["top_k"],
@@ -147,6 +151,42 @@ def _build_gemini_streaming_response(*, client: AIStudioClient, normalized: dict
                                         "candidates": [
                                             {
                                                 "content": {"role": "model", "parts": [{"text": text}]},
+                                                "finishReason": None,
+                                            }
+                                        ]
+                                    },
+                                    ensure_ascii=False,
+                                ) + "\n\n"
+                            elif event_type == "images" and text:
+                                yield "data: " + json.dumps(
+                                    {
+                                        "candidates": [
+                                            {
+                                                "content": {
+                                                    "role": "model",
+                                                    "parts": [
+                                                        part.model_dump(mode="json", exclude_none=True)
+                                                        for part in to_gemini_parts("", images=text)
+                                                    ],
+                                                },
+                                                "finishReason": None,
+                                            }
+                                        ]
+                                    },
+                                    ensure_ascii=False,
+                                ) + "\n\n"
+                            elif event_type == "reasoning_images" and text:
+                                yield "data: " + json.dumps(
+                                    {
+                                        "candidates": [
+                                            {
+                                                "content": {
+                                                    "role": "model",
+                                                    "parts": [
+                                                        part.model_dump(mode="json", exclude_none=True)
+                                                        for part in to_gemini_parts("", reasoning_images=text)
+                                                    ],
+                                                },
                                                 "finishReason": None,
                                             }
                                         ]

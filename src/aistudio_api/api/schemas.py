@@ -98,6 +98,7 @@ class GeminiGenerationConfig(BaseModel):
     topP: Optional[float] = None
     topK: Optional[int] = None
     maxOutputTokens: Optional[int] = None
+    responseModalities: Optional[list[str]] = None
     responseMimeType: Optional[str] = None
     responseSchema: Optional[list[Any] | dict[str, Any]] = None
     presencePenalty: Optional[float] = None
@@ -106,6 +107,12 @@ class GeminiGenerationConfig(BaseModel):
     logprobs: Optional[int] = None
     mediaResolution: Optional[list[Any] | int | str] = None
     thinkingConfig: Optional[list[Any] | dict[str, Any]] = None
+    imageConfig: Optional[dict[str, Any]] = None
+
+
+class GeminiSafetySetting(BaseModel):
+    category: str
+    threshold: str
 
 
 class GeminiGenerateContentRequest(BaseModel):
@@ -113,6 +120,7 @@ class GeminiGenerateContentRequest(BaseModel):
     systemInstruction: Optional[GeminiContent] = None
     tools: Optional[list[GeminiTool]] = None
     generationConfig: Optional[GeminiGenerationConfig] = None
+    safetySettings: Optional[list[GeminiSafetySetting]] = None
 
 
 class AnthropicContentBlock(BaseModel):

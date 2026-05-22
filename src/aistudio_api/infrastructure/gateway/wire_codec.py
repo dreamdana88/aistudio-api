@@ -177,6 +177,7 @@ class AistudioWireCodec:
         system_instruction: str | None = None,
         system_instruction_content: AistudioContent | None = None,
         tools: list[list] | None = None,
+        safety_settings: list[list] | None = None,
         images: list[str] | None = None,
         temperature: float | None = None,
         top_p: float | None = None,
@@ -211,6 +212,8 @@ class AistudioWireCodec:
             setattr(request.generation_config, attr, value)
         if model_defaults.safety_settings is not None:
             request.safety_settings = model_defaults.safety_settings_overrides()
+        if safety_settings is not None:
+            request.safety_settings = safety_settings
 
         if max_tokens is not None:
             request.generation_config.max_tokens = max_tokens
@@ -334,6 +337,7 @@ def modify_body(
     system_instruction: str | None = None,
     system_instruction_content: AistudioContent | None = None,
     tools: list[list] | None = None,
+    safety_settings: list[list] | None = None,
     images: list[str] | None = None,
     temperature: float | None = None,
     top_p: float | None = None,
@@ -352,6 +356,7 @@ def modify_body(
         system_instruction=system_instruction,
         system_instruction_content=system_instruction_content,
         tools=tools,
+        safety_settings=safety_settings,
         images=images,
         temperature=temperature,
         top_p=top_p,
