@@ -90,7 +90,7 @@ def test_anthropic_message_response_maps_function_calls_to_tool_use_blocks():
         function_calls=[{"name": "Read", "args": {"file_path": "navigation/a.py"}}],
     )
 
-    assert response["stop_reason"] == "tool_use"
-    assert response["content"][0]["type"] == "tool_use"
-    assert response["content"][0]["name"] == "Read"
-    assert response["content"][0]["input"] == {"file_path": "navigation/a.py"}
+    assert response.stop_reason == "tool_use"
+    assert response.content[0].type == "tool_use"
+    assert response.content[0].name == "Read"
+    assert response.content[0].input == {"file_path": "navigation/a.py"}

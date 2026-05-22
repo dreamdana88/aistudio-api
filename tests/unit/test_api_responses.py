@@ -147,3 +147,17 @@ def test_to_gemini_parts_can_emit_thought_part():
         {"text": "思考", "thought": True},
         {"text": "答案"},
     ]
+
+
+def test_to_gemini_parts_can_emit_inline_image_data():
+    from aistudio_api.domain.models import GeneratedImage
+
+    parts = to_gemini_parts(
+        "说明",
+        images=[GeneratedImage(mime="image/png", data=b"png-bytes", size=9)],
+    )
+
+    assert [part.model_dump(mode="json", exclude_none=True) for part in parts] == [
+        {"text": "说明"},
+        {"inlineData": {"mimeType": "image/png", "data": "cG5nLWJ5dGVz"}},
+    ]

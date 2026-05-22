@@ -239,6 +239,29 @@ def test_modify_body_safety_off_uses_off_threshold():
     ]
 
 
+def test_modify_body_can_override_safety_settings():
+    original = '["models/original",[[[[null,"old"]],"user"]],null,[null,null,null,128,0.5,0.8,16],"!snap",null,null]'
+    rewritten = modify_body(
+        original,
+        model="models/gemini-3.5-flash",
+        prompt="hello",
+        safety_settings=[
+            [None, None, 7, 1],
+            [None, None, 8, 4],
+            [None, None, 9, 3],
+            [None, None, 10, 2],
+        ],
+    )
+
+    body = json.loads(rewritten)
+    assert body[2] == [
+        [None, None, 7, 1],
+        [None, None, 8, 4],
+        [None, None, 9, 3],
+        [None, None, 10, 2],
+    ]
+
+
 def test_modify_body_keeps_structured_generation_config_for_gemini_mode():
     original = '["models/original",[[[[null,"old"]],"user"]],null,[null,["6"],null,128,0.5,0.8,16,"application/json",[6],0.1,0.2,true,5,null,[2,1],null,[1,null,null,3],2],"!snap",null,null,null,null,null,1,"cached",null,[[null,null,"Asia/Shanghai"],null,1]]'
     rewritten = modify_body(
