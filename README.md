@@ -37,12 +37,17 @@
 
 ### 步骤
 
+**方式 A：下载 ZIP（推荐新手）**
+
+1. 点击本页面右上角绿色的 **Code** 按钮 → **Download ZIP**
+2. 解压到任意目录
+3. 双击 `start.bat` 启动
+
+**方式 B：Git 克隆**
+
 ```bash
-# 1. 克隆本仓库
 git clone https://github.com/wilderye/aistudio-api.git
 cd aistudio-api
-
-# 2. 双击 start.bat 启动（首次会自动安装依赖和下载浏览器）
 start.bat
 ```
 
