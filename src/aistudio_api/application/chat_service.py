@@ -328,7 +328,7 @@ def _normalize_gemini_safety_settings(value: Any) -> list[list[Any]]:
 
         category = _GEMINI_SAFETY_CATEGORY_MAP.get(str(item.category).strip().upper())
         if category is None:
-            raise ValueError(f"Unsupported safety category: {item.category}")
+            continue
         threshold = _GEMINI_SAFETY_THRESHOLD_MAP.get(str(item.threshold).strip().upper())
         if threshold is None:
             raise ValueError(f"Unsupported safety threshold: {item.threshold}")
