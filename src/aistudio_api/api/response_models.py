@@ -33,7 +33,7 @@ class OpenAIToolCall(BaseModel):
 class OpenAIChatMessage(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: str
-    thinking: str | None = None
+    reasoning_content: str | None = None
     tool_calls: list[OpenAIToolCall] | None = None
 
 
@@ -55,7 +55,7 @@ class OpenAIChatCompletionResponse(BaseModel):
 class OpenAIChatDelta(BaseModel):
     role: Literal["assistant"] = "assistant"
     content: str | None = None
-    thinking: str | None = None
+    reasoning_content: str | None = None
     tool_calls: list[OpenAIToolCall] | None = None
 
 

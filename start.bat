@@ -1,5 +1,6 @@
 @echo off
 set CLOAKBROWSER_AUTO_UPDATE=false
+set PYTHONUTF8=1
 set PYTHONPATH=%~dp0src
 cd /d %~dp0
 echo Installing dependencies...

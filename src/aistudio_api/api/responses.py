@@ -113,7 +113,7 @@ def sse_chunk(
                 index=0,
                 delta=OpenAIChatDelta(
                     content=content or None,
-                    thinking=thinking,
+                    reasoning_content=thinking,
                     tool_calls=tool_calls,
                 ),
                 finish_reason=finish,
@@ -321,7 +321,7 @@ def chat_completion_response(
                 index=0,
                 message=OpenAIChatMessage(
                     content=content,
-                    thinking=thinking or None,
+                    reasoning_content=thinking or None,
                     tool_calls=to_openai_tool_calls(function_calls) if function_calls else None,
                 ),
                 finish_reason=finish_reason,
