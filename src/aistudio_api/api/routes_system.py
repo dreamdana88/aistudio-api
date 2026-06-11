@@ -23,6 +23,69 @@ async def stats():
     return stats_response()
 
 
+# ========== 模型配置 API ==========
+
+@protected_router.get("/config/model-defaults")
+async def get_model_defaults_config():
+    """获取模型默认配置。"""
+    import yaml
+    from aistudio_api.infrastructure.gateway.model_defaults import (
+        _resolve_config_path,
+        _default_config,
+    )
+
+    path = _resolve_config_path(None)
+    if not path.exists():
+        return _default_config().get("model_defaults", {})
+    try:
+        content = yaml.safe_load(path.read_text()) or {}
+        return content.get("model_defaults", {})
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(500, detail=f"读取配置失败: {e}")
+
+
+class ModelDefaultsConfigPayload(BaseModel):
+    profiles: list[dict]
+    models: dict[str, dict]
+
+
+@protected_router.post("/config/model-defaults")
+async def save_model_defaults_config(payload: ModelDefaultsConfigPayload):
+    """保存模型默认配置并清理缓存。"""
+    import yaml
+    from aistudio_api.infrastructure.gateway.model_defaults import (
+        _resolve_config_path,
+        _compiled_profiles,
+        _compiled_model_overrides,
+    )
+
+    path = _resolve_config_path(None)
+    data = {
+        "model_defaults": {
+            "profiles": payload.profiles,
+            "models": payload.models,
+        }
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            yaml.safe_dump(
+                data,
+                allow_unicode=True,
+                sort_keys=False,
+                default_flow_style=False,
+            ),
+            encoding="utf-8",
+        )
+        _compiled_profiles.cache_clear()
+        _compiled_model_overrides.cache_clear()
+        return {"ok": True}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(500, detail=f"保存配置失败: {e}")
+
+
 # ========== 轮询管理 API ==========
 
 class RotationModeRequest(BaseModel):

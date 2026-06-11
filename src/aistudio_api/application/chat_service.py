@@ -77,6 +77,10 @@ def normalize_chat_request(messages, requested_model: str, tmp_dir: str = "/tmp"
         text_parts: list[str] = []
         image_paths: list[str] = []
 
+        # OpenAI 兼容格式的 reasoning_content：思考内容作为首个 thought Part 传入
+        if role == "assistant" and msg.reasoning_content:
+            parts.append(AistudioPart(text=msg.reasoning_content, thought=True))
+
         if isinstance(msg.content, str):
             if msg.content:
                 parts.append(AistudioPart(text=msg.content))
@@ -96,6 +100,7 @@ def normalize_chat_request(messages, requested_model: str, tmp_dir: str = "/tmp"
                         path = url_to_file(url, tmp_dir=tmp_dir)
                         image_paths.append(path)
                         cleanup_paths.append(path)
+
 
         for image_path in image_paths:
             parts.append(_image_path_to_part(image_path))
@@ -258,6 +263,10 @@ def _normalize_gemini_image_config(value: Any) -> dict[str, Any]:
 
     aspect_ratio = value.get("aspectRatio")
     image_size = value.get("imageSize")
+    if isinstance(aspect_ratio, str) and not aspect_ratio.strip():
+        aspect_ratio = None
+    if isinstance(image_size, str):
+        image_size = image_size.strip() or None
     person_generation = value.get("personGeneration")
     if person_generation not in (None, ""):
         raise ValueError("generationConfig.imageConfig.personGeneration is not supported yet")
@@ -407,7 +416,11 @@ def normalize_anthropic_request(req, tmp_dir: str = "/tmp", tool_context: dict[s
                 text_parts.append(content)
         elif isinstance(content, list):
             for block in content:
-                if block.type == "text" and block.text:
+                if block.type == "thinking" and block.thinking:
+                    # Anthropic 思考 block：作为 thought=True 的文本 Part 传递，
+                    # 不加入 capture_texts（避免影响 snapshot 捕获）
+                    parts.append(AistudioPart(text=block.thinking, thought=True))
+                elif block.type == "text" and block.text:
                     parts.append(AistudioPart(text=block.text))
                     text_parts.append(block.text)
                 elif block.type == "image" and block.source:
@@ -614,13 +627,33 @@ def normalize_gemini_request(req, requested_model: str, tmp_dir: str = "/tmp") -
         text_parts: list[str] = []
         content_images: list[str] = []
 
-        for part in content.parts:
+        # 预先统计文本 Part 的位置索引，用于推断多 Part model 消息中的思考内容。
+        # 约定：model 角色有 2 个及以上纯文本 Part 时，最后一个是正式回答，
+        # 其余全是思考内容——即使客户端没有传 thought=true 字段。
+        text_part_positions = [
+            i for i, p in enumerate(content.parts) if p.text is not None
+        ]
+        infer_thinking = role == "model" and len(text_part_positions) >= 2
+
+        for idx, part in enumerate(content.parts):
             if part.text is not None:
-                parts.append(AistudioPart(text=part.text))
+                # 显式 thought 字段优先；否则对 model 多文本 Part 按位置推断
+                is_thought = bool(part.thought) or (
+                    infer_thinking and idx != text_part_positions[-1]
+                )
+                parts.append(AistudioPart(
+                    text=part.text,
+                    thought=is_thought,
+                ))
                 text_parts.append(part.text)
                 continue
             if part.inlineData is not None:
-                parts.append(AistudioPart(inline_data=(part.inlineData.mimeType, part.inlineData.data)))
+                parts.append(
+                    AistudioPart(
+                        inline_data=(part.inlineData.mimeType, part.inlineData.data),
+                        thought_signature=part.thoughtSignature,
+                    )
+                )
                 image_path = inline_data_to_file(part.inlineData.mimeType, part.inlineData.data, tmp_dir=tmp_dir)
                 content_images.append(image_path)
                 cleanup_paths.append(image_path)
@@ -643,7 +676,10 @@ def normalize_gemini_request(req, requested_model: str, tmp_dir: str = "/tmp") -
             parts=[
                 AistudioPart(text=part.text)
                 if part.text is not None
-                else AistudioPart(inline_data=(part.inlineData.mimeType, part.inlineData.data))
+                else AistudioPart(
+                    inline_data=(part.inlineData.mimeType, part.inlineData.data),
+                    thought_signature=part.thoughtSignature,
+                )
                 for part in req.systemInstruction.parts
                 if part.text is not None or part.inlineData is not None
             ],

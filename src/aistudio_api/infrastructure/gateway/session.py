@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
+
 import json
 import logging
 import threading
@@ -150,8 +150,6 @@ class BrowserSession:
         self._templates: dict[str, dict[str, Any]] = {}
         self._bootstrap_template: dict[str, Any] | None = None
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aistudio-browser")
-        self._botguard_lock = asyncio.Lock()
-        self._snapshot_lock = asyncio.Lock()
 
     async def ensure_context(self):
         return await self._run_sync(self._ensure_browser_sync)
@@ -209,14 +207,14 @@ class BrowserSession:
 
             # 先走 Google 登录页，让浏览器补全 host-only / session cookies
             try:
-                page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
+                page = target_ctx.pages[0] if target_ctx.pages else target_ctx.new_page()
                 self._bootstrap_google_session_sync(page)
             except Exception as e:
                 log.warning("[import_cookies] browser visit failed: %s", e)
 
             # 从浏览器导出全部 cookies
             try:
-                browser_cookies = self._ctx.cookies()
+                browser_cookies = target_ctx.cookies()
                 if browser_cookies:
                     self._save_cookies_sync(auth_file=target_auth_file, cookies=browser_cookies)
                     log.info("[import_cookies] exported %d cookies from browser", len(browser_cookies))
@@ -244,8 +242,7 @@ class BrowserSession:
 
     async def generate_snapshot(self, contents: list[AistudioContent]) -> str:
         loop = asyncio.get_running_loop()
-        async with self._snapshot_lock:
-            return await loop.run_in_executor(self._executor, lambda: self._generate_snapshot_sync(contents))
+        return await loop.run_in_executor(self._executor, lambda: self._generate_snapshot_sync(contents))
 
     async def send_hooked_request(self, *, body: str, timeout_ms: int) -> tuple[int, bytes]:
         return await self._run_sync(self._send_hooked_request_sync, body, timeout_ms)
@@ -282,8 +279,7 @@ class BrowserSession:
 
     async def _run_sync(self, func, *args):
         loop = asyncio.get_running_loop()
-        async with self._botguard_lock:
-            return await loop.run_in_executor(self._executor, lambda: func(*args))
+        return await loop.run_in_executor(self._executor, lambda: func(*args))
 
     @staticmethod
     def _discover_active_auth_file() -> str | None:
@@ -885,9 +881,7 @@ mw:((hash) => {
                 return self._upload_images_via_api_sync(image_paths, cookies)
         except Exception as e:
             # 如果非 UI 方式失败，回退到 UI 方式
-            import logging
-            logging.getLogger("aistudio").debug("Non-UI upload failed, falling back to UI: %s", e)
-            pass
+            log.debug("Non-UI upload failed, falling back to UI: %s", e)
 
         # UI 方式上传（原有逻辑）
         page = self._ensure_botguard_service_sync()
@@ -1208,3 +1202,5 @@ mw:((hash) => {
         self._cf = None
         self._playwright = None
         self._snap_key = None
+        self._templates.clear()
+        self._bootstrap_template = None

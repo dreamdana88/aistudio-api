@@ -130,6 +130,7 @@ async def handle_chat(req: ChatRequest, client: AIStudioClient):
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
             except Exception as exc:
                 runtime_state.record(model, "errors")
+                record_rotator_event("error")
                 logger.error("Chat error: %s", exc, exc_info=True)
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
             finally:
@@ -177,6 +178,7 @@ async def handle_image_generation(req: ImageRequest, client: AIStudioClient):
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
             except Exception as exc:
                 runtime_state.record(req.model, "errors")
+                record_rotator_event("error")
                 logger.error("Image error: %s", exc, exc_info=True)
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
 
@@ -236,6 +238,7 @@ async def handle_image_edit(
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
             except Exception as exc:
                 runtime_state.record(model, "errors")
+                record_rotator_event("error")
                 logger.error("Image Edit error: %s", exc, exc_info=True)
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
 
@@ -327,6 +330,7 @@ def _build_streaming_response(
                             continue
                         raise
 
+                record_rotator_event("success")
                 runtime_state.record(model, "success", final_usage)
                 yield sse_chunk(chat_id, model, "", finish="tool_calls" if saw_tool_calls else "stop", include_usage=include_usage)
                 if include_usage:
@@ -334,6 +338,8 @@ def _build_streaming_response(
                 yield "data: [DONE]\n\n"
             except Exception as exc:
                 logger.error("Stream error: %s", exc, exc_info=True)
+                if not isinstance(exc, UsageLimitExceeded):
+                    record_rotator_event("error")
                 runtime_state.record(model, "errors")
                 yield sse_error(str(exc))
             finally:

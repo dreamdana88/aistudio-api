@@ -264,6 +264,7 @@ def to_gemini_parts(
         parts.append(
             GeminiPartResponse(
                 thought=True,
+                thoughtSignature=image.thought_signature or None,
                 inlineData=GeminiInlineDataResponse(
                     mimeType=image.mime,
                     data=base64.b64encode(image.data).decode("ascii"),
@@ -275,6 +276,7 @@ def to_gemini_parts(
     for image in images or []:
         parts.append(
             GeminiPartResponse(
+                thoughtSignature=image.thought_signature or None,
                 inlineData=GeminiInlineDataResponse(
                     mimeType=image.mime,
                     data=base64.b64encode(image.data).decode("ascii"),

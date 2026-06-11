@@ -239,6 +239,7 @@ async def handle_anthropic_messages(req: AnthropicMessageRequest, client: AIStud
                     raise HTTPException(500, detail={"message": str(exc), "type": "api_error"}) from exc
                 except Exception as exc:
                     runtime_state.record(model, "errors")
+                    record_rotator_event("error")
                     logger.error("Anthropic messages error: %s", exc, exc_info=True)
                     raise HTTPException(500, detail={"message": str(exc), "type": "api_error"}) from exc
 
@@ -443,6 +444,7 @@ def _build_anthropic_streaming_response(
                         {"type": "content_block_stop", "index": text_block_index},
                     )
 
+                record_rotator_event("success")
                 runtime_state.record(model, "success", final_usage)
                 yield anthropic_sse(
                     "message_delta",
@@ -458,6 +460,8 @@ def _build_anthropic_streaming_response(
                 yield anthropic_sse("message_stop", {"type": "message_stop"})
             except Exception as exc:
                 logger.error("Anthropic stream error: %s", exc, exc_info=True)
+                if not isinstance(exc, UsageLimitExceeded):
+                    record_rotator_event("error")
                 runtime_state.record(model, "errors")
                 yield anthropic_error_sse(str(exc))
             finally:

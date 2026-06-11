@@ -15,6 +15,7 @@ class MessageContent(BaseModel):
 class Message(BaseModel):
     role: str
     content: str | list[MessageContent]
+    reasoning_content: Optional[str] = None
 
 
 class OpenAIFunctionDefinition(BaseModel):
@@ -76,6 +77,8 @@ class GeminiPart(BaseModel):
     text: Optional[str] = None
     inlineData: Optional[GeminiInlineData] = None
     fileData: Optional[GeminiFileData] = None
+    thought: Optional[bool] = None
+    thoughtSignature: Optional[str] = None
 
 
 class GeminiContent(BaseModel):

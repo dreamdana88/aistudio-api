@@ -17,6 +17,7 @@ class GeneratedImage:
     mime: str
     data: bytes
     size: int
+    thought_signature: str = ""
 
 
 @dataclass
@@ -295,7 +296,12 @@ def parse_response_chunk(chunk: list) -> Candidate:
         if part.inline_data:
             decoded = decode_base64_images([{"mime": part.inline_data[0], "data": part.inline_data[1]}])
             decoded_images = [
-                GeneratedImage(mime=img["mime"], data=img["bytes"], size=img["size"])
+                GeneratedImage(
+                    mime=img["mime"],
+                    data=img["bytes"],
+                    size=img["size"],
+                    thought_signature=part.thought_signature or "",
+                )
                 for img in decoded
             ]
             if part.thought:

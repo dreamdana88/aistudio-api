@@ -105,6 +105,7 @@ async def handle_gemini_generate_content(
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
             except Exception as exc:
                 runtime_state.record(model_path, "errors")
+                record_rotator_event("error")
                 logger.error("Gemini error: %s", exc, exc_info=True)
                 raise HTTPException(500, detail={"message": str(exc), "type": "server_error"}) from exc
             finally:
@@ -231,6 +232,7 @@ def _build_gemini_streaming_response(*, client: AIStudioClient, normalized: dict
                             continue
                         raise
 
+                record_rotator_event("success")
                 runtime_state.record(normalized["model"], "success", final_usage)
                 if final_usage:
                     yield "data: " + json.dumps(
@@ -243,6 +245,8 @@ def _build_gemini_streaming_response(*, client: AIStudioClient, normalized: dict
                 yield "data: [DONE]\n\n"
             except Exception as exc:
                 logger.error("Gemini stream error: %s", exc, exc_info=True)
+                if not isinstance(exc, UsageLimitExceeded):
+                    record_rotator_event("error")
                 runtime_state.record(normalized["model"], "errors")
                 yield "data: " + json.dumps({"error": {"message": str(exc)}}, ensure_ascii=False) + "\n\n"
             finally:

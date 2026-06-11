@@ -151,6 +151,7 @@ class GeminiPartResponse(BaseModel):
     text: str | None = None
     thought: bool | None = None
     inlineData: GeminiInlineDataResponse | None = None
+    thoughtSignature: str | None = None
     functionCall: GeminiFunctionCallPayload | None = None
     functionResponse: GeminiFunctionResponsePayload | None = None
 

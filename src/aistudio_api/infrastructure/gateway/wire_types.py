@@ -224,13 +224,19 @@ class AistudioPart:
     function_call: tuple[str, object] | tuple[str, object, str] | None = None
     function_response: tuple[str, object] | tuple[str, object, str] | None = None
     thought_signature: str | None = None
+    thought: bool = False
 
     def to_wire(self):
         if self.file_id:
             return [None, None, None, None, None, [self.file_id]]
         if self.inline_data:
             mime, b64 = self.inline_data
-            return [None, None, [mime, b64]]
+            part = [None, None, [mime, b64]]
+            if self.thought_signature:
+                while len(part) <= 14:
+                    part.append(None)
+                part[14] = self.thought_signature
+            return part
         if self.function_call:
             name, args = self.function_call[0], self.function_call[1]
             call_id = self.function_call[2] if len(self.function_call) > 2 else None
@@ -252,6 +258,13 @@ class AistudioPart:
                 function_response.append(call_id)
             part = [None] * 12
             part[11] = function_response
+            return part
+        # Text part — mark as thinking when thought=True (wire index 12 = 1).
+        if self.thought:
+            part: list = [None, self.text]
+            while len(part) <= 12:
+                part.append(None)
+            part[12] = 1
             return part
         return [None, self.text]
 
