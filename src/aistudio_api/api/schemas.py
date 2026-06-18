@@ -12,10 +12,24 @@ class MessageContent(BaseModel):
     image_url: Optional[dict] = None
 
 
+class ToolCallFunction(BaseModel):
+    name: Optional[str] = None
+    arguments: Optional[str] = None
+
+
+class ToolCall(BaseModel):
+    id: Optional[str] = None
+    type: Optional[str] = None
+    function: Optional[ToolCallFunction] = None
+
+
 class Message(BaseModel):
     role: str
-    content: str | list[MessageContent]
+    content: Optional[str | list[MessageContent]] = None
+    name: Optional[str] = None
     reasoning_content: Optional[str] = None
+    tool_calls: Optional[list[ToolCall]] = None
+    tool_call_id: Optional[str] = None
 
 
 class OpenAIFunctionDefinition(BaseModel):

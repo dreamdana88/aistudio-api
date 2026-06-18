@@ -12,8 +12,8 @@ model_defaults:
       # - google_search                    仅网页搜索
       # - image_search                     仅图片搜索
       # - google_search_and_image_search   网页搜索 + 图片搜索
-      # default_tools:
-      #   - google_search_and_image_search
+      default_tools:
+        - google_search_and_image_search
       # generation_config_defaults 会映射到内部 wire generation_config
       generation_config_defaults:
         # 生图通常不需要显式 response mime type
@@ -47,10 +47,10 @@ model_defaults:
       # 1 = 最严格拦截
       # 5 = 关闭
       safety_settings:
-        Harassment: 4
-        Hate: 4
-        Sexually Explicit: 4
-        Dangerous Content: 4
+        Harassment: 5
+        Hate: 5
+        Sexually Explicit: 5
+        Dangerous Content: 5
 
     # Gemini 文本模型默认配置
     - name: gemini_models
@@ -62,13 +62,13 @@ model_defaults:
       # - code_execution
       # - google_maps
       # - url_context
-      # default_tools:
-      #   - google_search
+      default_tools:
+        - google_search
       safety_settings:
-        Harassment: 4
-        Hate: 4
-        Sexually Explicit: 4
-        Dangerous Content: 4
+        Harassment: 5
+        Hate: 5
+        Sexually Explicit: 5
+        Dangerous Content: 5
 
   # models: 对单个模型做精确覆盖，优先级高于上面的 profiles
   # 例如：

@@ -45,14 +45,6 @@ class RequestCaptureService:
         contents: list[AistudioContent] | None = None,
         force_refresh: bool = False,
     ) -> CapturedRequest | None:
-        # Image bytes live in rewritten contents, so template capture does not need
-        # the original image list. Only cache plain-text prompts.
-        if not images and not force_refresh:
-            cached = self._snapshot_cache.get(prompt)
-            if cached:
-                _snapshot, url, headers, body = cached
-                return CapturedRequest(url=url, headers=headers, body=body)
-
         template = await self._ensure_template(model)
         # 先只走 inlineData 路径，避免 fileData/Drive 上传链路干扰主流程。
         rewritten_contents = contents
@@ -60,14 +52,12 @@ class RequestCaptureService:
         snapshot = await self._session.generate_snapshot(snapshot_contents)
         body = modify_body(
             template.body,
-            model=model,
+            model=template.model or model,
             prompt=prompt,
             contents=rewritten_contents,
             snapshot=snapshot,
         )
         captured = CapturedRequest(url=template.url, headers=template.headers, body=body)
-        if not images:
-            self._snapshot_cache.put(prompt, captured.snapshot, captured.url, captured.headers, captured.body)
         logger.info(
             "Hook 拦截成功: model=%s, snapshot=%s chars, body=%s chars",
             captured.model,

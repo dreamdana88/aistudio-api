@@ -40,6 +40,7 @@ def data_uri_to_file(uri: str, tmp_dir: str = "/tmp") -> str:
         raise ValueError("Invalid data URI")
     mime, b64 = match.group(1), match.group(2)
     ext = mime.split("/")[-1].replace("jpeg", "jpg")
+    os.makedirs(tmp_dir, exist_ok=True)
     path = os.path.join(tmp_dir, f"aistudio_img_{uuid.uuid4().hex[:8]}.{ext}")
     with open(path, "wb") as file:
         file.write(base64.b64decode(b64))
@@ -47,6 +48,7 @@ def data_uri_to_file(uri: str, tmp_dir: str = "/tmp") -> str:
 
 
 def url_to_file(url: str, tmp_dir: str = "/tmp") -> str:
+    os.makedirs(tmp_dir, exist_ok=True)
     path = os.path.join(tmp_dir, f"aistudio_img_{uuid.uuid4().hex[:8]}.jpg")
     with httpx.Client(timeout=30) as http:
         resp = http.get(url)
@@ -64,6 +66,14 @@ def normalize_chat_request(messages, requested_model: str, tmp_dir: str = "/tmp"
     cleanup_paths: list[str] = []
     saw_images = False
 
+    # Build tool_call_id → function name map from assistant tool_calls
+    tool_call_names: dict[str, str] = {}
+    for msg in messages:
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                if tc.id and tc.function and tc.function.name:
+                    tool_call_names[tc.id] = tc.function.name
+
     for msg in messages:
         role = (msg.role or "user").lower()
         if role in ("system", "developer"):
@@ -77,9 +87,28 @@ def normalize_chat_request(messages, requested_model: str, tmp_dir: str = "/tmp"
         text_parts: list[str] = []
         image_paths: list[str] = []
 
+        # tool result → user role with marker
+        if role == "tool":
+            raw = _message_text_content(msg.content) or ""
+            fname = tool_call_names.get(msg.tool_call_id or "", "") or msg.name or "unknown"
+            response = _parse_tool_payload(raw)
+            function_response = (fname, response, msg.tool_call_id) if msg.tool_call_id else (fname, response)
+            parts.append(AistudioPart(function_response=function_response))
+            contents.append(AistudioContent(role="user", parts=parts))
+            capture_texts.append(raw)
+            continue
+
         # OpenAI 兼容格式的 reasoning_content：思考内容作为首个 thought Part 传入
         if role == "assistant" and msg.reasoning_content:
             parts.append(AistudioPart(text=msg.reasoning_content, thought=True))
+
+        if role == "assistant" and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if not tc.function or not tc.function.name:
+                    continue
+                args = _parse_tool_payload(tc.function.arguments)
+                function_call = (tc.function.name, args, tc.id) if tc.id else (tc.function.name, args)
+                parts.append(AistudioPart(function_call=function_call))
 
         if isinstance(msg.content, str):
             if msg.content:
@@ -139,6 +168,17 @@ def _message_text_content(content) -> str | None:
     return None
 
 
+def _parse_tool_payload(value: Any) -> Any:
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
 def _image_path_to_part(path: str) -> AistudioPart:
     mime = "image/jpeg"
     if path.endswith(".png"):
@@ -159,6 +199,7 @@ def cleanup_files(paths: list[str]):
 
 def inline_data_to_file(mime_type: str, data: str, tmp_dir: str = "/tmp") -> str:
     ext = mime_type.split("/")[-1].replace("jpeg", "jpg")
+    os.makedirs(tmp_dir, exist_ok=True)
     path = os.path.join(tmp_dir, f"aistudio_img_{uuid.uuid4().hex[:8]}.{ext}")
     with open(path, "wb") as file:
         file.write(base64.b64decode(data))

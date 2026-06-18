@@ -20,3 +20,8 @@ docs/
 chromium-profile/
 botguard-fork/
 scripts/
+data2/
+.ai_memory
+.antigravitycli
+chrome-headless
+
