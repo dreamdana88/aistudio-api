@@ -137,8 +137,9 @@ TEMPLATE_CAPTURE_PROMPT = "say 't'"
 
 
 class BrowserSession:
-    def __init__(self, port: int):
+    def __init__(self, port: int, *, headless: bool | None = None):
         self.port = port
+        self._headless = settings.browser_headless if headless is None else headless
         self._auth_file = settings.auth_file or self._discover_active_auth_file()
         self._profile_dir = self._derive_profile_dir(self._auth_file)
         self._hook_page = None
@@ -159,6 +160,10 @@ class BrowserSession:
 
     async def ensure_hook_page(self):
         await self._run_sync(self._ensure_hook_page_sync)
+        return True
+
+    async def show_hook_page(self):
+        await self._run_sync(self._show_hook_page_sync)
         return True
 
     async def ensure_botguard_service(self):
@@ -243,6 +248,9 @@ class BrowserSession:
     async def generate_snapshot(self, contents: list[AistudioContent]) -> str:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, lambda: self._generate_snapshot_sync(contents))
+
+    async def send_page_prompt(self, *, prompt: str, model: str, timeout_ms: int) -> tuple[int, bytes]:
+        return await self._run_sync(self._send_page_prompt_sync, prompt, model, timeout_ms)
 
     async def send_hooked_request(self, *, body: str, timeout_ms: int) -> tuple[int, bytes]:
         return await self._run_sync(self._send_hooked_request_sync, body, timeout_ms)
@@ -537,15 +545,15 @@ class BrowserSession:
         from aistudio_api.config import build_camoufox_proxy
 
         self._cf = Camoufox(
-            headless=settings.browser_headless,
+            headless=self._headless,
             main_world_eval=True,
             proxy=build_camoufox_proxy(settings.proxy_url),
         )
         self._browser = self._cf.__enter__()
-        self._ctx = self._browser.new_context(**build_browser_context_options())
+        self._ctx = self._browser.new_context(**build_browser_context_options(headless=self._headless))
         self._apply_auth_file_sync()
         self._hook_page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
-        sync_maximize_page_window(self._hook_page)
+        sync_maximize_page_window(self._hook_page, headless=self._headless)
         log.debug(f"[timing] browser launched in {_t.time()-_t0:.1f}s")
         self._goto_aistudio_sync(self._hook_page)
         log.debug(f"[timing] page loaded in {_t.time()-_t0:.1f}s")
@@ -568,17 +576,18 @@ class BrowserSession:
             profile_path.mkdir(parents=True, exist_ok=True)
             self._ctx = sync_launch_persistent_context(
                 profile_dir,
-                **build_browser_context_options(),
+                headless=self._headless,
+                **build_browser_context_options(headless=self._headless),
             )
             self._browser = None
             self._cf = None
             self._playwright = None
         else:
-            self._browser, self._cf, self._playwright = sync_launch_browser()
-            self._ctx = self._browser.new_context(**build_browser_context_options())
+            self._browser, self._cf, self._playwright = sync_launch_browser(headless=self._headless)
+            self._ctx = self._browser.new_context(**build_browser_context_options(headless=self._headless))
 
         self._hook_page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
-        sync_maximize_page_window(self._hook_page)
+        sync_maximize_page_window(self._hook_page, headless=self._headless)
 
         # First, see whether the persistent profile / current context is already alive.
         try:
@@ -674,6 +683,18 @@ class BrowserSession:
             self._goto_aistudio_sync(self._hook_page)
         self._install_hooks_sync(self._hook_page)
         return self._hook_page
+
+    def _show_hook_page_sync(self):
+        if self._headless:
+            self._headless = False
+            self._close_sync()
+        page = self._ensure_hook_page_sync()
+        try:
+            page.bring_to_front()
+        except Exception:
+            pass
+        sync_maximize_page_window(page, headless=self._headless)
+        return page
 
     def _ensure_botguard_service_sync(self):
         import time as _t
@@ -1073,6 +1094,84 @@ mw:((hash) => {
             raise RuntimeError(f"replay failed: {raw_text}")
         return status, raw_text.encode("utf-8")
 
+    def _send_page_prompt_sync(self, prompt: str, model: str, timeout_ms: int) -> tuple[int, bytes]:
+        import time as _t
+
+        _t0 = _t.time()
+        page = self._ensure_hook_page_sync()
+        page.evaluate(DIALOG_CLEANUP_JS)
+
+        captured: dict[str, Any] = {}
+        response_result: dict[str, Any] = {}
+
+        def is_generate_content(url: str) -> bool:
+            return "GenerateContent" in url and "Count" not in url
+
+        def on_request(request):
+            if not is_generate_content(request.url) or captured:
+                return
+            body = request.post_data
+            if not body or len(body) <= 100:
+                return
+            captured["url"] = request.url
+            captured["headers"] = dict(request.headers)
+            captured["body"] = body
+
+        def on_response(response):
+            if not is_generate_content(response.url) or response_result:
+                return
+            try:
+                text = response.text()
+            except Exception as exc:
+                text = f"<response.text() failed: {exc}>"
+            response_result["status"] = response.status
+            response_result["url"] = response.url
+            response_result["body"] = text
+
+        page.on("request", on_request)
+        page.on("response", on_response)
+        try:
+            textarea = page.query_selector("textarea")
+            if textarea is None:
+                raise RuntimeError("textarea not found during startup page prompt")
+
+            textarea.fill(prompt)
+            page.wait_for_timeout(500)
+            if not self._click_run_button_sync(page):
+                raise RuntimeError("failed to trigger startup page prompt")
+
+            deadline = _t.time() + max(timeout_ms / 1000, 1)
+            while _t.time() < deadline:
+                if response_result:
+                    break
+                page.wait_for_timeout(250)
+
+            if not captured:
+                raise RuntimeError("startup page prompt did not emit GenerateContent request")
+            template = dict(captured)
+            self._bootstrap_template = template
+            self._templates[model] = template
+
+            if not response_result:
+                raise RuntimeError("startup page prompt response timeout")
+
+            status = int(response_result.get("status", 0))
+
+            try:
+                self._wait_until_idle_sync(page)
+            except Exception as exc:
+                log.debug("startup page prompt idle wait failed: %s", exc)
+
+            log.debug(
+                "[timing] startup page prompt finished in %.1fs, status=%s",
+                _t.time() - _t0,
+                response_result.get("status"),
+            )
+            return status, str(response_result.get("body", "")).encode("utf-8")
+        finally:
+            page.remove_listener("request", on_request)
+            page.remove_listener("response", on_response)
+
     def _goto_aistudio_sync(self, page) -> None:
         import time as _t
         last_exc = None
@@ -1132,16 +1231,34 @@ mw:((hash) => {
         raise RuntimeError(f"Hook install failed: {result} (url={page_url}, title={page_title!r})")
 
     def _click_run_button_sync(self, page) -> bool:
+        click_error: Exception | None = None
         try:
             button = page.query_selector("button:has-text('Run')")
-        except Exception:
-            return False
+        except Exception as exc:
+            log.warning("Run button lookup failed before AI Studio send: %s", exc)
+            button = None
         if button is None:
-            return False
+            log.warning("Run button not found before AI Studio send; trying Ctrl+Enter fallback")
+        else:
+            try:
+                button.click(timeout=2000)
+                log.info("AI Studio send triggered by Run button click")
+                return True
+            except Exception as exc:
+                click_error = exc
+                log.warning("Run button click failed before AI Studio send; trying Ctrl+Enter fallback: %s", exc)
+
         try:
-            button.click()
+            textarea = page.query_selector("textarea")
+            if textarea is None:
+                log.warning("Ctrl+Enter fallback skipped: textarea not found")
+                return False
+            textarea.click()
+            page.keyboard.press("Control+Enter")
+            log.info("AI Studio send triggered by Ctrl+Enter fallback")
             return True
-        except Exception:
+        except Exception as exc:
+            log.warning("Ctrl+Enter fallback failed before AI Studio send: %s; original click error: %s", exc, click_error)
             return False
 
     def _has_run_button_sync(self, page) -> bool:

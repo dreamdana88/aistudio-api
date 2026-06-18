@@ -59,6 +59,52 @@ class AIStudioClient:
         if self._session is not None:
             await self._session.ensure_context()
             logger.info("浏览器预热完成")
+            await self.startup_self_test()
+
+    async def startup_self_test(self) -> bool:
+        """Send a low-cost page prompt so startup creates/primes an AI Studio chat."""
+        async def _send_startup_prompt() -> None:
+            status, raw = await self._session.send_page_prompt(
+                prompt="say 'ok'",
+                model=DEFAULT_TEXT_MODEL,
+                timeout_ms=settings.timeout_replay * 1000,
+            )
+            raw_text = raw.decode("utf-8", errors="replace")
+            if status != 200:
+                raise classify_error(status, raw_text)
+
+        try:
+            await _send_startup_prompt()
+            logger.info("启动自检成功：AI Studio 页面测试消息已发送，对话已创建")
+            return True
+        except Exception as exc:
+            self.clear_snapshot_cache()
+            logger.warning(
+                "启动自检未通过：即将打开可见 AI Studio 页面并重试测试消息。错误：%s",
+                exc,
+            )
+            try:
+                await self._session.show_hook_page()
+            except Exception as show_exc:
+                logger.warning("启动自检失败后展示 AI Studio 页面失败: %s", show_exc)
+                logger.warning(
+                    "启动自检未通过，需要手动 prime：请打开 AI Studio 页面发送任意一句话并等待回复，"
+                    "然后回到酒馆重试。错误：%s",
+                    exc,
+                )
+                return False
+
+            try:
+                await _send_startup_prompt()
+                logger.info("启动自检成功：可见 AI Studio 页面测试消息已发送，对话已创建")
+                return True
+            except Exception as retry_exc:
+                logger.warning(
+                    "启动自检可见重试未通过，需要手动 prime：请在当前 AI Studio 对话中发送任意一句话"
+                    "并等待回复，然后回到酒馆重试。错误：%s",
+                    retry_exc,
+                )
+            return False
 
     async def switch_auth(self, auth_file: str | None) -> None:
         """切换账号的 auth 文件。"""

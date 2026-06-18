@@ -134,7 +134,7 @@ async def async_maximize_page_window(page: Any, *, headless: bool | None = None)
         pass
 
 
-def sync_launch_browser() -> tuple[Any, Any | None, Any | None]:
+def sync_launch_browser(*, headless: bool | None = None) -> tuple[Any, Any | None, Any | None]:
     """Launch a sync browser session.
 
     Returns:
@@ -143,8 +143,9 @@ def sync_launch_browser() -> tuple[Any, Any | None, Any | None]:
     if is_camoufox_engine():
         from camoufox.sync_api import Camoufox
 
+        is_headless = settings.browser_headless if headless is None else headless
         cf = Camoufox(
-            headless=settings.browser_headless,
+            headless=is_headless,
             main_world_eval=True,
             proxy=build_camoufox_proxy(settings.proxy_url),
         )
@@ -153,7 +154,7 @@ def sync_launch_browser() -> tuple[Any, Any | None, Any | None]:
 
     from cloakbrowser import launch
 
-    headless = settings.browser_headless
+    headless = settings.browser_headless if headless is None else headless
     browser = launch(
         headless=headless,
         proxy=build_camoufox_proxy(settings.proxy_url),
