@@ -38,4 +38,6 @@ services:
 
 volumes:
   aistudio-api-data:
+    name: aistudio-api-data
   aistudio-api-browser-cache:
+    name: aistudio-api-browser-cache

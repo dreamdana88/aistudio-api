@@ -1,0 +1,19 @@
+AI Studio API fork notices
+==========================
+
+This repository is directly forked from:
+https://github.com/wilderye/aistudio-api
+
+That project is based on:
+https://github.com/chrysoljq/aistudio-api
+
+The upstream projects and their contributors retain copyright in their
+respective contributions. This fork preserves upstream attribution and is
+distributed under the MIT License.
+
+CloakBrowser is a separate third-party project:
+https://github.com/CloakHQ/cloakbrowser
+
+Its Python package and browser binary are governed by CloakBrowser's own
+license terms. This repository does not include or redistribute its browser
+binary; the binary is downloaded into a persistent runtime cache.

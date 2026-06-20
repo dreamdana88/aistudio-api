@@ -1,6 +1,8 @@
 # AI Studio API — SillyTavern 适配版
 
-基于 [chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api) 的 Fork，针对 [SillyTavern](https://github.com/SillyTavern/SillyTavern) 和 Windows 环境做了适配。
+本仓库 Fork 自 [wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)，其核心来源为
+[chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)。在保留 SillyTavern 与 Windows
+适配的基础上，增加 Docker、GHCR 和 1Panel 云部署支持。
 
 ## 功能
 
@@ -46,13 +48,18 @@
 **方式 B：Git 克隆**
 
 ```bash
-git clone https://github.com/wilderye/aistudio-api.git
+git clone https://github.com/dreamdana88/aistudio-api.git
 cd aistudio-api
 start.bat
 ```
 
 首次启动时，CloakBrowser 浏览器会自动下载（约 535 MB），请耐心等待。
 如果下载失败，请手动从 [GitHub Releases](https://github.com/CloakHQ/cloakbrowser/releases) 下载 `cloakbrowser-windows-x64.zip`，解压到 `C:\Users\<你的用户名>\.cloakbrowser\` 目录。
+
+### 云服务器 / 1Panel
+
+RackNerd、1Panel、Docker Compose、HTTPS、更新和回退步骤见
+[DEPLOYMENT.md](DEPLOYMENT.md)。公网部署必须配置至少 32 位的 `AISTUDIO_API_KEY`。
 
 ---
 
@@ -242,10 +249,15 @@ model_defaults:
 
 ## 致谢
 
+- **[wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)** — 本 Fork 的直接上游，提供 SillyTavern 与 Windows 适配
 - **[chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)** — 原版项目，本仓库的全部核心功能均来自此项目
 - [LuanRT/BgUtils](https://github.com/LuanRT/BgUtils)
 - [iBUHub/AIStudioToAPI](https://github.com/iBUHub/AIStudioToAPI)
 
 ## License
 
-MIT
+MIT，详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+
+## 免责声明
+
+本项目是非官方兼容层，与 Google 无隶属或背书关系。AI Studio 页面、BotGuard、账号风控或服务条款变化都可能导致项目失效。请自行确认使用方式符合相关服务条款，不要将账号 Cookie、`auth.json`、浏览器 Profile 或 `.env` 提交到 GitHub。
