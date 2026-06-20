@@ -10,7 +10,7 @@ FIXTURES = ROOT / "tests"
 
 
 def test_parse_text_output_from_stream_bundle():
-    raw = (FIXTURES / "test_output.json").read_text()
+    raw = (FIXTURES / "test_output.json").read_text(encoding="utf-8")
     output = parse_text_output(raw)
 
     assert output.text == "你好！有什么我可以帮你的吗？"
@@ -25,7 +25,7 @@ def test_parse_text_output_from_stream_bundle():
 
 
 def test_parse_response_chunk_and_classify_chunk():
-    raw = json.loads((FIXTURES / "test_output.json").read_text())
+    raw = json.loads((FIXTURES / "test_output.json").read_text(encoding="utf-8"))
     final_chunk = raw[0][-1]
 
     candidate = parse_response_chunk(final_chunk)
@@ -42,7 +42,7 @@ def test_parse_response_chunk_and_classify_chunk():
 
 
 def test_stream_parser_extracts_real_chunks():
-    raw = (FIXTURES / "test_output.json").read_text()
+    raw = (FIXTURES / "test_output.json").read_text(encoding="utf-8")
     parser = IncrementalJSONStreamParser()
 
     chunks = list(parser.feed(raw))

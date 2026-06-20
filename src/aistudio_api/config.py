@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -99,7 +100,7 @@ def discover_auth_file() -> str | None:
         if registry_path.exists():
             try:
                 import json
-                registry = json.loads(registry_path.read_text())
+                registry = json.loads(registry_path.read_text(encoding="utf-8"))
                 active_id = registry.get("active_account_id")
                 if active_id:
                     auth_path = root / "accounts" / active_id / "auth.json"
@@ -164,7 +165,7 @@ class Settings:
     browser_python: str | None = _load_env("AISTUDIO_BROWSER_PYTHON", "AISTUDIO_CAMOUFOX_PYTHON")
     login_browser_port: int = _load_int_env("AISTUDIO_LOGIN_BROWSER_PORT", "AISTUDIO_LOGIN_CAMOUFOX_PORT", default=9223)
     auth_file: str | None = discover_auth_file()
-    tmp_dir: str = os.getenv("AISTUDIO_TMP_DIR", "/tmp")
+    tmp_dir: str = os.getenv("AISTUDIO_TMP_DIR", tempfile.gettempdir())
     proxy_url: str | None = discover_proxy_url()
     api_keys: frozenset[str] = _load_api_keys()
     timeout_replay: int = int(os.getenv("AISTUDIO_TIMEOUT_REPLAY", "120"))
@@ -173,7 +174,7 @@ class Settings:
     snapshot_cache_ttl: int = int(os.getenv("AISTUDIO_SNAPSHOT_CACHE_TTL", "3600"))
     snapshot_cache_max: int = int(os.getenv("AISTUDIO_SNAPSHOT_CACHE_MAX", "100"))
     dump_raw_response: bool = os.getenv("AISTUDIO_DUMP_RAW_RESPONSE", "0") in ("1", "true", "True")
-    dump_raw_response_dir: str = os.getenv("AISTUDIO_DUMP_RAW_RESPONSE_DIR", "/tmp")
+    dump_raw_response_dir: str = os.getenv("AISTUDIO_DUMP_RAW_RESPONSE_DIR", tempfile.gettempdir())
     accounts_dir: str = os.getenv("AISTUDIO_ACCOUNTS_DIR", "")
     # 账号轮询配置
     account_rotation_mode: str = os.getenv("AISTUDIO_ACCOUNT_ROTATION_MODE", "round_robin")  # round_robin, lru, least_rl

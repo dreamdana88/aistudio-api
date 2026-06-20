@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+import tempfile
 import uuid
 from typing import Any, Optional
 
@@ -34,7 +35,10 @@ SCHEMA_TYPE_CODES = {
     "object": 6,
 }
 
-def data_uri_to_file(uri: str, tmp_dir: str = "/tmp") -> str:
+_DEFAULT_TMP_DIR = tempfile.gettempdir()
+
+
+def data_uri_to_file(uri: str, tmp_dir: str = _DEFAULT_TMP_DIR) -> str:
     match = re.match(r"data:(.+?);base64,(.+)", uri, re.DOTALL)
     if not match:
         raise ValueError("Invalid data URI")
@@ -47,7 +51,7 @@ def data_uri_to_file(uri: str, tmp_dir: str = "/tmp") -> str:
     return path
 
 
-def url_to_file(url: str, tmp_dir: str = "/tmp") -> str:
+def url_to_file(url: str, tmp_dir: str = _DEFAULT_TMP_DIR) -> str:
     os.makedirs(tmp_dir, exist_ok=True)
     path = os.path.join(tmp_dir, f"aistudio_img_{uuid.uuid4().hex[:8]}.jpg")
     with httpx.Client(timeout=30) as http:
@@ -58,7 +62,7 @@ def url_to_file(url: str, tmp_dir: str = "/tmp") -> str:
     return path
 
 
-def normalize_chat_request(messages, requested_model: str, tmp_dir: str = "/tmp") -> dict:
+def normalize_chat_request(messages, requested_model: str, tmp_dir: str = _DEFAULT_TMP_DIR) -> dict:
     system_texts: list[str] = []
     contents: list[AistudioContent] = []
     capture_texts: list[str] = []
@@ -197,7 +201,7 @@ def cleanup_files(paths: list[str]):
             pass
 
 
-def inline_data_to_file(mime_type: str, data: str, tmp_dir: str = "/tmp") -> str:
+def inline_data_to_file(mime_type: str, data: str, tmp_dir: str = _DEFAULT_TMP_DIR) -> str:
     ext = mime_type.split("/")[-1].replace("jpeg", "jpg")
     os.makedirs(tmp_dir, exist_ok=True)
     path = os.path.join(tmp_dir, f"aistudio_img_{uuid.uuid4().hex[:8]}.{ext}")
@@ -411,7 +415,11 @@ def normalize_openai_tools(tools) -> list[list] | None:
     return [[None, [encode_function_declaration_to_wire(decl) for decl in function_declarations]]]
 
 
-def normalize_anthropic_request(req, tmp_dir: str = "/tmp", tool_context: dict[str, dict] | None = None) -> dict:
+def normalize_anthropic_request(
+    req,
+    tmp_dir: str = _DEFAULT_TMP_DIR,
+    tool_context: dict[str, dict] | None = None,
+) -> dict:
     system_text = _anthropic_system_text(req.system)
     contents: list[AistudioContent] = []
     capture_texts: list[str] = [system_text] if system_text else []
@@ -572,7 +580,10 @@ def _anthropic_tool_id_name_map(messages) -> dict[str, str]:
     return mapping
 
 
-def _anthropic_image_source_to_file(source: dict[str, Any], tmp_dir: str = "/tmp") -> str | None:
+def _anthropic_image_source_to_file(
+    source: dict[str, Any],
+    tmp_dir: str = _DEFAULT_TMP_DIR,
+) -> str | None:
     source_type = source.get("type")
     if source_type == "base64" and source.get("media_type") and source.get("data"):
         return inline_data_to_file(source["media_type"], source["data"], tmp_dir=tmp_dir)
@@ -652,7 +663,11 @@ def _sanitize_schema_for_wire(schema: dict | None) -> dict:
     return sanitized
 
 
-def normalize_gemini_request(req, requested_model: str, tmp_dir: str = "/tmp") -> dict:
+def normalize_gemini_request(
+    req,
+    requested_model: str,
+    tmp_dir: str = _DEFAULT_TMP_DIR,
+) -> dict:
     if not req.contents:
         raise ValueError("contents is required")
 

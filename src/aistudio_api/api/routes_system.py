@@ -38,7 +38,7 @@ async def get_model_defaults_config():
     if not path.exists():
         return _default_config().get("model_defaults", {})
     try:
-        content = yaml.safe_load(path.read_text()) or {}
+        content = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         return content.get("model_defaults", {})
     except Exception as e:
         from fastapi import HTTPException

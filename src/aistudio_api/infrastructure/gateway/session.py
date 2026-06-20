@@ -597,7 +597,7 @@ class BrowserSession:
         # auth.json must not be re-injected or it can corrupt the browser state.
         if should_seed_from_auth and self._auth_file and Path(self._auth_file).exists():
             try:
-                data = json.loads(Path(self._auth_file).read_text())
+                data = json.loads(Path(self._auth_file).read_text(encoding="utf-8"))
                 cached = data.get("cookies") or []
                 if cached:
                     self._ctx.add_cookies(cached)
@@ -626,7 +626,7 @@ class BrowserSession:
         """Legacy mode: load cookies from auth.json."""
         if self._auth_file and Path(self._auth_file).exists():
             log.info(f"Loading auth from: {self._auth_file}")
-            data = json.loads(Path(self._auth_file).read_text())
+            data = json.loads(Path(self._auth_file).read_text(encoding="utf-8"))
             cookies = data.get("cookies") or []
             if cookies:
                 self._ctx.add_cookies(cookies)
@@ -658,7 +658,7 @@ class BrowserSession:
             origins = []
             if auth_path.exists():
                 try:
-                    existing = json.loads(auth_path.read_text())
+                    existing = json.loads(auth_path.read_text(encoding="utf-8"))
                     origins = existing.get("origins", [])
                 except Exception:
                     pass
