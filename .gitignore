@@ -13,6 +13,7 @@ build/
 /tmp/
 stream_response.txt
 .vscode/
+*.code-workspace
 docs/
 .env
 /test_*
@@ -24,4 +25,3 @@ data2/
 .ai_memory
 .antigravitycli
 chrome-headless
-
