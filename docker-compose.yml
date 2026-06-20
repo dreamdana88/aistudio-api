@@ -3,20 +3,28 @@ services:
     build: .
     container_name: aistudio-api
     restart: unless-stopped
+    init: true
     ports:
-      - "8080:8080"    # API server
-      # - "9222:9222"  # Optional: expose only when debugging Camoufox
+      - "127.0.0.1:${AISTUDIO_BIND_PORT:-8080}:8080"
     volumes:
-      - ./data:/app/data           # Account data persistence
-      - ./.env:/app/.env:ro        # Environment config (read-only)
+      - ./data:/app/data
+      - cloakbrowser-cache:/root/.cloakbrowser
+      - ./config.yaml:/app/config.yaml
     environment:
-      - AISTUDIO_PORT=8080
-      - AISTUDIO_CAMOUFOX_PORT=9222
-      - AISTUDIO_CAMOUFOX_HEADLESS=1
-      - AISTUDIO_ACCOUNTS_DIR=/app/data/accounts
+      AISTUDIO_PORT: "8080"
+      AISTUDIO_BROWSER: "${AISTUDIO_BROWSER:-chromium}"
+      AISTUDIO_BROWSER_PORT: "9222"
+      AISTUDIO_BROWSER_HEADLESS: "1"
+      AISTUDIO_ACCOUNTS_DIR: "/app/data/accounts"
+      AISTUDIO_API_KEY: "${AISTUDIO_API_KEY:-}"
+      AISTUDIO_PROXY: "${AISTUDIO_PROXY:-}"
+      AISTUDIO_MAX_CONCURRENCY: "${AISTUDIO_MAX_CONCURRENCY:-1}"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/models"]
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
-      start_period: 10s
+      start_period: 15s
       retries: 3
+
+volumes:
+  cloakbrowser-cache:
