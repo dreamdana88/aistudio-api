@@ -49,23 +49,6 @@ Google AI Studio Playground reverse proxy. Supports Google Membership (Pro/Ultra
 
 ## Quick Start
 
-### Direct Launch
-
-```bash
-# Clone the repository
-git clone https://github.com/dreamdana88/aistudio-api.git
-cd aistudio-api
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Login to Google account
-python3 main.py login
-
-# Start the service
-python3 main.py server --port 8080
-```
-
 ### Docker Deployment
 
 ```bash

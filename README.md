@@ -1,8 +1,8 @@
-# AI Studio API — SillyTavern 适配版
+# AI Studio API — SillyTavern 云部署版
 
 本仓库 Fork 自 [wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)，其核心来源为
-[chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)。在保留 SillyTavern 与 Windows
-适配的基础上，增加 Docker、GHCR 和 1Panel 云部署支持。
+[chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)。本 Fork 专注于 SillyTavern、
+Docker、GHCR 和 1Panel 云服务器部署。
 
 ## 功能
 
@@ -18,45 +18,19 @@
 - **BotGuard** — 自动特征匹配定位 snapshot 函数
 - **多账号轮询** — round-robin / LRU / 最少限流
 
-## 与原版的区别
+## 本 Fork 的重点
 
 | 修改项 | 说明 |
 |:---|:---|
-| Windows 兼容 | 修复了 `termios` 导入崩溃和 `requirements.txt` 编码问题 |
-| 一键启动 | 新增 `start.bat`，自动安装依赖、设置环境变量，双击即用 |
+| 云服务器部署 | 提供 Docker、GHCR、1Panel、HTTPS、更新与回退方案 |
+| 低内存配置 | 默认并发 1，适配约 2 核、2.5 GB 内存服务器 |
+| 安全保护 | API Token 强制校验、敏感文件排除和 CI 凭证扫描 |
 | 思维链兼容 | 将 `thinking` 字段改为 `reasoning_content`，SillyTavern 可正确显示 |
 | 安全分类容错 | 遇到未知的安全分类（如 `CIVIC_INTEGRITY`）时自动跳过，不再崩溃 |
-| 浏览器不自动更新 | 禁止 CloakBrowser 启动时自动联网检查更新 |
 
 ---
 
-## 安装
-
-### 前置要求
-
-- **Python 3.11+**：[下载地址](https://www.python.org/downloads/)
-  - 安装时请勾选 **"Add Python to PATH"**
-
-### 步骤
-
-**方式 A：下载 ZIP（推荐新手）**
-
-1. 点击本页面右上角绿色的 **Code** 按钮 → **Download ZIP**
-2. 解压到任意目录
-3. 双击 `start.bat` 启动
-
-**方式 B：Git 克隆**
-
-```bash
-git clone https://github.com/dreamdana88/aistudio-api.git
-cd aistudio-api
-start.bat
-```
-
-首次启动时，CloakBrowser 浏览器会自动下载（约 535 MB），请耐心等待。
-如果下载失败，请手动从 [GitHub Releases](https://github.com/CloakHQ/cloakbrowser/releases) 下载 `cloakbrowser-windows-x64.zip`，解压到 `C:\Users\<你的用户名>\.cloakbrowser\` 目录。
-
-### 云服务器 / 1Panel
+## 云服务器部署
 
 RackNerd、1Panel、Docker Compose、HTTPS、更新和回退步骤见
 [DEPLOYMENT.md](DEPLOYMENT.md)。公网部署必须配置至少 32 位的 `AISTUDIO_API_KEY`。
@@ -249,7 +223,7 @@ model_defaults:
 
 ## 致谢
 
-- **[wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)** — 本 Fork 的直接上游，提供 SillyTavern 与 Windows 适配
+- **[wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)** — 本 Fork 的直接上游，提供 SillyTavern 适配
 - **[chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)** — 原版项目，本仓库的全部核心功能均来自此项目
 - [LuanRT/BgUtils](https://github.com/LuanRT/BgUtils)
 - [iBUHub/AIStudioToAPI](https://github.com/iBUHub/AIStudioToAPI)

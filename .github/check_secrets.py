@@ -61,6 +61,9 @@ def forbidden_path(path: Path) -> str | None:
 def main() -> int:
     findings: list[str] = []
     for path in tracked_files():
+        if not path.exists():
+            continue
+
         path_issue = forbidden_path(path)
         if path_issue:
             findings.append(f"{path.relative_to(ROOT)}: tracked {path_issue}")
