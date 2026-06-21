@@ -1,237 +1,266 @@
 # AI Studio API — SillyTavern 云部署版
 
-本仓库 Fork 自 [wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)，其核心来源为
-[chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)。本 Fork 专注于 SillyTavern、
-Docker、GHCR 和 1Panel 云服务器部署。
+将 Google AI Studio 转换为 OpenAI / Anthropic / Gemini 兼容 API，适合通过
+Docker 或 1Panel 部署到云服务器，并接入 SillyTavern。
 
-## 功能
+本项目 Fork 自 [wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)，
+核心来源为 [chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)。
 
-- **OpenAI/Anthropic 兼容** — 支持 `/v1/chat/completions`、`/v1/images/generations`、`/v1/messages`
-- **Gemini 原生 API** — 同时支持 `/v1beta/models/{model}:generateContent`
-- **流式输出** — SSE 流式返回
-- **多轮对话** — 正确的 user/model 交替结构
-- **图片输入** — 支持 base64 内联和 HTTP URL，单图/多图
-- **Google 搜索** — 通过 `googleSearchRetrieval` 实时联网搜索
-- **思维链** — 返回模型思考过程（`reasoning_content` 字段，SillyTavern 可直接显示）
-- **图片生成** — 通过 Gemini 图片模型生成图片
-- **反检测** — CloakBrowser 反指纹浏览器
-- **BotGuard** — 自动特征匹配定位 snapshot 函数
-- **多账号轮询** — round-robin / LRU / 最少限流
+## 主要功能
 
-## 本 Fork 的重点
+- OpenAI、Anthropic、Gemini API 兼容
+- SillyTavern 流式对话与思维链显示
+- 图片输入、图片生成、Google 搜索
+- 多账号轮询
+- Web 管理后台与 Cookie 导入
+- GHCR 镜像、持久化数据、版本更新与回退
 
-| 修改项 | 说明 |
-|:---|:---|
-| 云服务器部署 | 提供 Docker、GHCR、1Panel、HTTPS、更新与回退方案 |
-| 低内存配置 | 默认并发 1，适配约 2 核、2.5 GB 内存服务器 |
-| 安全保护 | API Token 强制校验、敏感文件排除和 CI 凭证扫描 |
-| 思维链兼容 | 将 `thinking` 字段改为 `reasoning_content`，SillyTavern 可正确显示 |
-| 安全分类容错 | 遇到未知的安全分类（如 `CIVIC_INTEGRITY`）时自动跳过，不再崩溃 |
+## 推荐配置
 
----
+- Linux 云服务器
+- 已安装 Docker 或 1Panel
+- 推荐 2 核、2.5 GB 以上内存
+- 低内存服务器建议配置约 2 GB Swap
+- 一个已登录 Google AI Studio 的 Google 账号（建议使用小号）
 
-## 云服务器部署
+## 1Panel 部署
 
-RackNerd、1Panel、Docker Compose、HTTPS、更新和回退步骤见
-[DEPLOYMENT.md](DEPLOYMENT.md)。公网部署必须配置至少 32 位的 `AISTUDIO_API_KEY`。
+### 1. 创建容器编排
 
----
+进入：
 
-## 登录 Google 账号
-
-### 网页登录（推荐）
-
-启动后，在浏览器中访问：
-
-```
-http://127.0.0.1:8080
+```text
+容器 → 编排 → 创建编排
 ```
 
-进入管理后台后，使用页面上的 Google 账号登录功能完成登录。登录信息会被缓存，后续启动无需重复登录。
+名称可以填写：
 
-> 注意：如果你设置了 `AISTUDIO_API_KEY` 环境变量，访问时会先要求输入 API Token。未设置则直接进入管理后台。
+```text
+aistudio-api
+```
 
-### CLI 登录
+粘贴下面的 Compose：
+
+```yaml
+services:
+  aistudio-api:
+    image: ghcr.io/dreamdana88/aistudio-api:latest
+    container_name: aistudio-api
+    restart: unless-stopped
+    init: true
+
+    ports:
+      - "18080:8080"
+
+    environment:
+      AISTUDIO_PORT: "8080"
+      AISTUDIO_BROWSER: "chromium"
+      AISTUDIO_BROWSER_HEADLESS: "1"
+      AISTUDIO_ACCOUNTS_DIR: "/app/data/accounts"
+      AISTUDIO_API_KEY: "替换成你自己的至少32位密钥"
+      AISTUDIO_REQUIRE_API_KEY: "1"
+      AISTUDIO_MAX_CONCURRENCY: "1"
+
+    volumes:
+      - aistudio-api-data:/app/data
+      - aistudio-api-browser-cache:/root/.cloakbrowser
+
+    mem_limit: 1800m
+    cpus: 1.75
+    shm_size: 512m
+    pids_limit: 512
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  aistudio-api-data:
+    name: aistudio-api-data
+  aistudio-api-browser-cache:
+    name: aistudio-api-browser-cache
+```
+
+`18080:8080` 的含义：
+
+- `18080`：服务器对外端口，可以换成其他未占用端口
+- `8080`：容器内程序端口，不需要修改
+
+API 密钥可以自己设置，但必须至少 32 位。也可以在服务器终端生成：
 
 ```bash
-# 无头浏览器交互式登录，支持手机确认/安全码/验证器
-python main.py login
-
-# 有头模式，可手动操作浏览器
-python main.py login --headed
+openssl rand -hex 32
 ```
 
-### Cookies 导入
+不要把真实 API 密钥、Cookie 或账号文件发给别人。
 
-访问 https://myaccount.google.com/ ，复制 cookies 导入。仅测试过 chrome→cloakbrowser，跨内核可能不支持。重启生效。
+### 2. 启动与放行端口
 
----
+创建编排后等待容器启动。第一次启动会下载约 200 MB 的 CloakBrowser，
+日志出现下载、解压和 `/health 200 OK` 属于正常现象。
+
+在 1Panel 防火墙和云服务商防火墙中放行 TCP `18080`，然后访问：
+
+```text
+http://服务器IP:18080
+```
+
+输入 Compose 中设置的 API 密钥即可进入后台。
+
+服务器终端也可以检查：
+
+```bash
+curl http://127.0.0.1:18080/health
+```
+
+正常会返回类似：
+
+```json
+{"status":"ok","busy":false}
+```
+
+> IP + HTTP 适合快速测试。长期公网使用建议配置域名和 HTTPS，避免 API 密钥与聊天内容明文传输。
+
+## 导入 Google Cookie
+
+云服务器使用无头浏览器，后台的“登录账号”通常不会在你的电脑弹出登录窗口。
+推荐在自己电脑的 Chrome 中提取 Cookie，再通过后台导入。
+
+1. Chrome 打开 <https://myaccount.google.com/> 并确认已经登录正确账号。
+2. 按 `F12` 打开开发者工具。
+3. 进入 **Network / 网络**。
+4. 刷新页面。
+5. 点击请求列表里的第一个 `myaccount.google.com`。
+6. 打开 **Headers / 标头**。
+7. 在 **Request Headers / 请求标头** 中找到 `Cookie`。
+8. 复制 `Cookie:` 后面的完整内容，不要复制 `Cookie:` 这几个字。
+9. 回到项目后台，选择 **导入 Cookies**，原样粘贴并提交。
+
+Cookie 看起来是一整条很长的字符串，这是正常的：
+
+```text
+SID=...; SSID=...; HSID=...; SAPISID=...; ...
+```
+
+后台出现账号且状态为“激活”，说明导入基本成功。Cookie 等同于账号登录凭证，
+不要提交到 GitHub、发到聊天群或放进截图。
 
 ## SillyTavern 配置
 
-SillyTavern 支持两种方式连接本反代，**推荐使用方式一**。
+推荐选择：
 
-### 方式一：自定义（兼容 OpenAI）（推荐）
-
-| 设置项 | 值 |
-|:---|:---|
-| 聊天补全来源 | `自定义（兼容 OpenAI）` |
-| 自定义端点（基础 URL） | `http://127.0.0.1:8080/v1` |
-| 自定义 API 密钥 | 随便填一个，或留空 |
-| 模型名 | `gemini-3.5-flash` 或其他支持的模型 |
-
-> 此模式下，思维链内容会通过 `reasoning_content` 字段返回，SillyTavern 可正确显示。
-
-### 方式二：Google AI Studio（反向代理）
-
-| 设置项 | 值 |
-|:---|:---|
-| 聊天补全来源 | `Google AI Studio` |
-| 反向代理地址 | `http://127.0.0.1:8080` |
-| API 密钥 | 随便填一个，或留空 |
-
----
-
-## 支持的模型
-
-| 模型 | ID | 默认 Google Search | 说明 |
-|:---|:---|:---|:---|
-| Gemini 3.5 Flash | `gemini-3.5-flash` | ❌ | 快速 |
-| Gemini 3 Flash | `gemini-3-flash-preview` | ❌ | |
-| Gemini 3.1 Pro | `gemini-3.1-pro-preview` | ❌ | |
-| Gemini 3.1 Flash Lite | `gemini-3.1-flash-lite` | ❌ | |
-| Gemma 4 31B | `gemma-4-31b-it` | ✅ | 默认文本模型 |
-| Gemma 4 26B A4B | `gemma-4-26b-a4b-it` | ✅ | MoE，4B 激活 |
-| Gemini 3.1 Flash Image | `gemini-3.1-flash-image-preview` | ❌ | 生图，仅限 Pro/Ultra |
-| Gemini 3 Pro Image | `gemini-3-pro-image-preview` | ❌ | 生图 |
-
-完整列表请在启动后访问 `http://127.0.0.1:8080/v1/models`。
-
----
-
-## 配置
-
-通过环境变量或 `.env` 文件配置：
-
-| 变量 | 默认值 | 说明 |
-|:---|:---|:---|
-| `AISTUDIO_PORT` | `8080` | API 服务端口 |
-| `AISTUDIO_PROXY` | 空 | 浏览器代理地址 |
-| `AISTUDIO_API_KEY` | 空 | API 鉴权 key，配置后启用 Bearer / X-API-Key 鉴权 |
-| `AISTUDIO_DEFAULT_TEXT_MODEL` | `gemma-4-31b-it` | 默认对话模型 |
-| `AISTUDIO_DEFAULT_IMAGE_MODEL` | `gemini-3.1-flash-image-preview` | 默认图片模型 |
-| `AISTUDIO_CAMOUFOX_HEADLESS` | `1` | 无头模式运行浏览器 |
-| `AISTUDIO_TIMEOUT_REPLAY` | `120` | 请求超时（秒） |
-| `AISTUDIO_TIMEOUT_STREAM` | `120` | 流式超时（秒） |
-| `AISTUDIO_SNAPSHOT_CACHE_TTL` | `3600` | BotGuard snapshot 缓存时间 |
-| `AISTUDIO_ACCOUNT_ROTATION_MODE` | `round_robin` | 轮询模式：`round_robin`、`lru`、`least_rl` |
-| `AISTUDIO_ACCOUNT_COOLDOWN_SECONDS` | `60` | 限流后冷却时间 |
-
-### 模型配置
-
-项目根目录支持 `config.yaml`，用于给不同模型族补默认参数（也可通过 `AISTUDIO_CONFIG_FILE` 指定路径）。
-
-支持的场景：
-
-- 给 `gemma` / `gemini` / 生图模型分别设置默认行为
-- 给特定模型补 `generation_config` 默认值
-- 配置默认工具（如 `google_search`）
-- 配置安全设置 `safety_settings`
-
-示例：
-
-```yaml
-model_defaults:
-  profiles:
-    - name: image_models
-      match:
-        contains:
-          - image
-      is_image_model: true
-      generation_config_defaults:
-        response_mime_type: null
-        image_output_mode: image_only
-        thinking_config:
-          level: MINIMAL
-          mode: 1
-      disable_safety_settings: true
-
-    - name: gemma_models
-      match:
-        prefixes:
-          - gemma-
-      default_tools:
-        - google_search
-      safety_settings:
-        Harassment: 5
-        Hate: 5
-        Sexually Explicit: 5
-        Dangerous Content: 5
-
-    - name: gemini_models
-      match:
-        prefixes:
-          - gemini-
-      safety_settings:
-        Harassment: 5
-        Hate: 5
-        Sexually Explicit: 5
-        Dangerous Content: 5
-
-  models: {}
+```text
+聊天补全来源：自定义（兼容 OpenAI）
+自定义端点：http://服务器IP:18080/v1
+API 密钥：Compose 中设置的 AISTUDIO_API_KEY
+模型：gemini-3.5-flash
 ```
 
-`match` 支持三种方式：`exact`（精确）、`prefixes`（前缀）、`contains`（包含）。
+模型列表无法自动读取时，可以手动填写模型名称。第一次请求可能较慢，因为浏览器需要预热。
 
-`generation_config_defaults` 支持的字段：
+其他可用接口：
 
-| 字段 | 可选值 |
-|:---|:---|
-| `thinking_config.level` | `LOW` / `MEDIUM` / `HIGH` / `MINIMAL` |
-| `image_output_mode` | `image_only` / `text_and_image` |
-| `media_resolution` | `LOW` / `MEDIUM` / `HIGH` |
-| `response_mime_type` | MIME 类型字符串 |
-
-也可以对单个模型单独覆盖：
-
-```yaml
-model_defaults:
-  models:
-    gemini-3.1-flash-image-preview:
-      generation_config_defaults:
-        image_output_mode: text_and_image
-        media_resolution: HIGH
+```text
+OpenAI:    /v1/chat/completions
+Anthropic: /v1/messages
+Gemini:    /v1beta/models/{model}:generateContent
+健康检查: /health
 ```
 
-### 安全设置
+## 更新镜像
 
-`safety_settings` 支持四个分类：
+先记住当前使用的版本，然后在 1Panel 编排中修改镜像：
 
-- `Harassment`（骚扰）
-- `Hate`（仇恨言论）
-- `Sexually Explicit`（色情内容）
-- `Dangerous Content`（危险内容）
+```yaml
+image: ghcr.io/dreamdana88/aistudio-api:0.1.0
+```
 
-值范围 `1` 到 `5`：
+也可以使用：
 
-| 值 | 含义 |
-|:---|:---|
-| `1` | 最严格，尽量完全拦截 |
-| `5` | 关闭 |
+```yaml
+image: ghcr.io/dreamdana88/aistudio-api:latest
+```
 
----
+保存并重建编排即可。账号数据和浏览器缓存位于独立存储卷中，正常重建容器不会丢失。
+
+如果新版本有问题，把镜像标签改回上一个版本并再次重建。
+
+## 删除项目
+
+在 1Panel 中停止并删除 `aistudio-api` 编排即可删除程序。
+
+如果想保留账号数据，不要删除存储卷。如果想彻底清空，再删除：
+
+```text
+aistudio-api-data
+aistudio-api-browser-cache
+```
+
+镜像、容器和数据卷互相独立，因此项目可以随时删除或重新部署。
+
+## 常见问题
+
+### 浏览器预热提示 Cookie 认证失败
+
+首次启动且尚未导入账号时属于正常现象。导入正确 Cookie 后再测试。
+
+### 外部无法访问
+
+检查：
+
+- Compose 是否为 `"18080:8080"`
+- 1Panel 防火墙是否放行 TCP `18080`
+- 云服务商防火墙是否放行 TCP `18080`
+- 容器是否处于运行或健康状态
+
+### 如何删除错误账号
+
+先获取账号列表：
+
+```bash
+curl http://127.0.0.1:18080/accounts \
+  -H "Authorization: Bearer 你的API密钥"
+```
+
+找到错误账号的 `id`（格式为 `acc_xxxxxxxx`），然后删除：
+
+```bash
+curl -X DELETE "http://127.0.0.1:18080/accounts/完整账号ID" \
+  -H "Authorization: Bearer 你的API密钥"
+```
+
+### 想让 AI 帮忙排查
+
+可以把本 README、Compose 和已经打码的容器日志交给 AI。请先删除或遮挡：
+
+- `AISTUDIO_API_KEY`
+- Google Cookie
+- `auth.json`
+- 代理账号密码
+- 邮箱、服务器 IP 等不想公开的信息
+
+更详细的 HTTPS、Swap、备份和回退说明见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ## 致谢
 
-- **[wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)** — 本 Fork 的直接上游，提供 SillyTavern 适配
-- **[chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)** — 原版项目，本仓库的全部核心功能均来自此项目
+- [wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)
+- [chrysoljq/aistudio-api](https://github.com/chrysoljq/aistudio-api)
 - [LuanRT/BgUtils](https://github.com/LuanRT/BgUtils)
 - [iBUHub/AIStudioToAPI](https://github.com/iBUHub/AIStudioToAPI)
 
-## License
-
-MIT，详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
-
 ## 免责声明
 
-本项目是非官方兼容层，与 Google 无隶属或背书关系。AI Studio 页面、BotGuard、账号风控或服务条款变化都可能导致项目失效。请自行确认使用方式符合相关服务条款，不要将账号 Cookie、`auth.json`、浏览器 Profile 或 `.env` 提交到 GitHub。
+本项目是非官方兼容层，与 Google 无隶属或背书关系。Google AI Studio 页面、
+BotGuard、账号风控或服务条款变化都可能导致项目失效。请自行评估使用风险，
+并遵守相关服务条款。
+
+MIT License，详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
