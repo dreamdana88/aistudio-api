@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from aistudio_api.api.app import app as application
 from aistudio_api.api.dependencies import require_api_key
 from aistudio_api.config import settings
 
@@ -54,3 +55,27 @@ def test_missing_or_invalid_api_key_returns_401(monkeypatch):
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
     assert response.json()["detail"]["type"] == "authentication_error"
+
+    invalid_response = client.get(
+        "/protected",
+        headers={"Authorization": "Bearer wrong-token"},
+    )
+    assert invalid_response.status_code == 401
+
+
+def test_health_is_public_but_auth_verify_is_protected(monkeypatch):
+    monkeypatch.setattr(settings, "api_keys", frozenset({"secret-token"}))
+    client = TestClient(application)
+
+    health_response = client.get("/health")
+    missing_response = client.get("/auth/verify")
+    valid_response = client.get(
+        "/auth/verify",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+
+    assert health_response.status_code == 200
+    assert health_response.json()["status"] == "ok"
+    assert missing_response.status_code == 401
+    assert valid_response.status_code == 200
+    assert valid_response.json() == {"ok": True}

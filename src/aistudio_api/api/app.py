@@ -121,6 +121,12 @@ async def auth_check():
     return {"auth_enabled": settings.auth_enabled}
 
 
+@app.get("/auth/verify", dependencies=[Depends(require_api_key)])
+async def auth_verify():
+    """验证当前 API Token 是否有效。"""
+    return {"ok": True}
+
+
 def main():
     from aistudio_api.config import settings
 

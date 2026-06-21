@@ -49,23 +49,6 @@ Google AI Studio Playground reverse proxy. Supports Google Membership (Pro/Ultra
 
 ## Quick Start
 
-### Direct Launch
-
-```bash
-# Clone the repository
-git clone https://github.com/chrysoljq/aistudio-api.git
-cd aistudio-api
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Login to Google account
-python3 main.py login
-
-# Start the service
-python3 main.py server --port 8080
-```
-
 ### Docker Deployment
 
 ```bash
@@ -74,8 +57,14 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -v aistudio-api-data:/app/data \
-  ghcr.io/chrysoljq/aistudio-api:latest
+  -v aistudio-api-browser-cache:/root/.cloakbrowser \
+  -e AISTUDIO_API_KEY=replace-with-a-long-random-token \
+  -e AISTUDIO_REQUIRE_API_KEY=1 \
+  ghcr.io/dreamdana88/aistudio-api:latest
 ```
+
+For RackNerd and 1Panel deployment, HTTPS, backup, update, and rollback instructions,
+see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ### Login
 
@@ -334,9 +323,8 @@ Notes:
 
 This repo includes a GitHub Actions workflow at `.github/workflows/docker.yml`.
 
-- Changes under `src/**` trigger Docker builds on `push` and `pull_request`
-- `pull_request` runs build validation only and does not push an image
-- Pushes to `main` / `master` publish the image to `ghcr.io/chrysoljq/aistudio-api`
+- Branch pushes and pull requests validate the image without publishing it
+- Tags such as `v1.0.0` publish `1.0.0`, `1.0`, and `latest` to `ghcr.io/dreamdana88/aistudio-api`
 - You can also run it manually with `workflow_dispatch`
 
 The workflow uses GitHub's built-in `GITHUB_TOKEN` for GHCR, so no separate Docker Hub account is required.
@@ -397,10 +385,14 @@ The snapshot function name constantly changes with Google bundle updates (Mv →
 - [ ] Compatibility with `/v1/messages`
 
 ## Acknowledgements
+- https://github.com/wilderye/aistudio-api
 - https://github.com/LuanRT/BgUtils
 - https://github.com/iBUHub/AIStudioToAPI
 - https://linux.do
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+This is an unofficial compatibility layer and is not affiliated with or endorsed by
+Google. Never commit account cookies, `auth.json`, browser profiles, or `.env` files.

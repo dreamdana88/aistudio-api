@@ -39,7 +39,7 @@ function app() {
             return;
           }
           // 验证 token 是否有效
-          const verifyRes = await fetch('/health', {
+          const verifyRes = await fetch('/auth/verify', {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           if (!verifyRes.ok) {

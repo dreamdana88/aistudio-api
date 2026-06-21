@@ -266,7 +266,7 @@ def _resolve_config_path(config_path: str | os.PathLike[str] | None) -> Path:
 def _load_yaml_config(config_path: Path) -> dict[str, Any]:
     if not config_path.exists():
         return _default_config()
-    loaded = yaml.safe_load(config_path.read_text()) or {}
+    loaded = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     if not isinstance(loaded, dict):
         return _default_config()
     merged = _default_config()

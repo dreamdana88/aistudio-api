@@ -349,7 +349,9 @@ class AIStudioClient:
             img = output.images[0]
             ext = "jpg" if "jpeg" in img.mime else "png"
             path = save_path if save_path and save_path.endswith(f".{ext}") else (
-                f"{save_path}.{ext}" if save_path else f"/tmp/aistudio_generated.{ext}"
+                f"{save_path}.{ext}"
+                if save_path
+                else str(Path(settings.tmp_dir) / f"aistudio_generated.{ext}")
             )
             with open(path, "wb") as file:
                 file.write(img.data)

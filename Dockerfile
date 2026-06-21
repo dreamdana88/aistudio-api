@@ -5,7 +5,11 @@ FROM python:3.11-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    AISTUDIO_PORT=8080 \
+    AISTUDIO_BROWSER=chromium \
+    AISTUDIO_BROWSER_HEADLESS=1 \
+    AISTUDIO_ACCOUNTS_DIR=/app/data/accounts
 
 # Install system dependencies required for Camoufox and Playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -58,21 +62,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY src/ src/
 COPY main.py .
+COPY config.yaml .
+COPY docker/entrypoint.sh /usr/local/bin/aistudio-entrypoint
 
 # Create necessary directories
-RUN mkdir -p /app/data /tmp
+RUN mkdir -p /app/data /root/.cloakbrowser /tmp
 
 # Set permissions
-RUN chmod +x /app/main.py
+RUN chmod +x /app/main.py /usr/local/bin/aistudio-entrypoint
 
 # Expose ports
 # 8080: API server
-# 9222: Camoufox debug port
-EXPOSE 8080 9222
+EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/v1/models || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl --fail --silent --show-error http://localhost:8080/health || exit 1
 
 # Default command
-CMD ["python3", "main.py", "server", "--port", "8080", "--camoufox-port", "9222"]
+ENTRYPOINT ["aistudio-entrypoint"]
+CMD ["python3", "main.py", "server", "--port", "8080", "--browser-port", "9222"]

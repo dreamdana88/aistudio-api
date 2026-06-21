@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_parse_image_output_keeps_only_final_images_in_images_field():
-    raw = (ROOT / "test-image-output.json").read_text()
+    raw = (ROOT / "test-image-output.json").read_text(encoding="utf-8")
     output = parse_image_output(raw)
 
     assert len(output.images) == 1
