@@ -10,7 +10,7 @@ function app() {
     msgs: [], draft: '', selectedImages: [], busy: false,
     cfg: { thinking: 'off', search: 'off', stream: 'on', temperature: 1.0, topP: 0.95, maxTokens: 32768, safety: 'on' },
     toast: { show: false, msg: '', t: null },
-    cookieModal: { open: false, cookies: '', name: '', email: '', importing: false },
+    cookieModal: { open: false, mode: 'import', accountId: '', cookies: '', name: '', email: '', importing: false },
     loginInProgress: false,
 
     async init() {
@@ -169,6 +169,36 @@ function app() {
     async saveRotation() { try { await this.apiFetch('/rotation/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: this.rotCfg.mode, cooldown_seconds: this.rotCfg.cooldown }) }); this.showToast('已保存'); this.loadRotation() } catch (e) { this.showToast('保存失败') } },
     async forceNext() { try { await this.apiFetch('/rotation/next', { method: 'POST' }); this.showToast('已切换账号'); this.loadAccounts() } catch (e) { this.showToast('切换失败') } },
     async activateAccount(id) { try { await this.apiFetch(`/accounts/${id}/activate`, { method: 'POST' }); this.showToast('已激活'); this.loadAccounts(); this.loadRotation() } catch (e) { this.showToast('激活失败') } },
+    openImportCookies() {
+      this.cookieModal = { open: true, mode: 'import', accountId: '', cookies: '', name: '', email: '', importing: false };
+    },
+    openUpdateCookies(account) {
+      this.cookieModal = {
+        open: true,
+        mode: 'update',
+        accountId: account.id,
+        cookies: '',
+        name: account.name || '',
+        email: account.email || '',
+        importing: false
+      };
+    },
+    async deleteAccount(account) {
+      if (!confirm(`确定删除账号“${account.email || account.name || account.id}”吗？该账号的 Cookie 和浏览器 Profile 都会被删除。`)) return;
+      try {
+        const r = await this.apiFetch(`/accounts/${account.id}`, { method: 'DELETE' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showToast(d.detail || '删除失败');
+          return;
+        }
+        this.showToast('账号已删除');
+        await this.loadAccounts();
+        await this.loadRotation();
+      } catch (e) {
+        this.showToast('删除失败');
+      }
+    },
     async addAccount() {
       if (this.loginInProgress) return;
       this.loginInProgress = true;
@@ -237,17 +267,25 @@ function app() {
       const cookies = raw.split(/[\r\n]+/).map(l => l.trim()).filter(Boolean).join('; ');
       this.cookieModal.importing = true;
       try {
+        const updating = this.cookieModal.mode === 'update';
         const body = { cookies };
-        if (this.cookieModal.name.trim()) body.name = this.cookieModal.name.trim();
-        if (this.cookieModal.email.trim()) body.email = this.cookieModal.email.trim();
-        const r = await this.apiFetch('/accounts/import-cookies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!updating && this.cookieModal.name.trim()) body.name = this.cookieModal.name.trim();
+        if (!updating && this.cookieModal.email.trim()) body.email = this.cookieModal.email.trim();
+        const url = updating
+          ? `/accounts/${this.cookieModal.accountId}/cookies`
+          : '/accounts/import-cookies';
+        const r = await this.apiFetch(url, {
+          method: updating ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
         const d = await r.json();
         if (r.ok) {
-          this.showToast(`导入成功: ${d.cookie_count} 个 cookie`);
-          this.cookieModal.open = false; this.cookieModal.cookies = ''; this.cookieModal.name = ''; this.cookieModal.email = '';
+          this.showToast(updating ? 'Cookie 更新成功，账号验证通过' : `导入成功: ${d.cookie_count} 个 cookie`);
+          this.cookieModal = { open: false, mode: 'import', accountId: '', cookies: '', name: '', email: '', importing: false };
           this.loadAccounts(); this.loadRotation();
         } else {
-          this.showToast(d.detail || '导入失败');
+          this.showToast(d.detail || (updating ? 'Cookie 更新失败' : '导入失败'));
         }
       } catch (e) { this.showToast('网络错误') }
       finally { this.cookieModal.importing = false }

@@ -327,7 +327,7 @@
             style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:24px">
             <h1 style="font-size:24px;font-weight:700">账号管理</h1>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn" @click="cookieModal.open=true">导入 Cookies</button>
+              <button class="btn" @click="openImportCookies()">导入 Cookies</button>
               <button class="btn btn-primary" :disabled="loginInProgress" @click="addAccount()"
                 x-text="loginInProgress?'登录中...':'+ 登录账号'"></button>
             </div>
@@ -386,8 +386,14 @@
                           x-text="a.rate_limited||0"></span></td>
                       <td><span class="badge badge-green" x-show="a.id===activeId">激活</span><span
                           class="badge badge-gray" x-show="a.id!==activeId">待命</span></td>
-                      <td><button class="btn btn-sm" x-show="a.id!==activeId"
-                          @click="activateAccount(a.id)">手动激活</button></td>
+                      <td>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                          <button class="btn btn-sm" x-show="a.id!==activeId"
+                            @click="activateAccount(a.id)">激活</button>
+                          <button class="btn btn-sm" @click="openUpdateCookies(a)">更新 Cookie</button>
+                          <button class="btn btn-sm btn-danger" @click="deleteAccount(a)">删除</button>
+                        </div>
+                      </td>
                     </tr>
                   </template>
                   <tr x-show="!accountRows.length">
@@ -406,7 +412,7 @@
     x-transition.opacity>
     <div class="modal" x-show="cookieModal.open" x-transition>
       <div class="modal-head">
-        <span>导入 Cookies</span>
+        <span x-text="cookieModal.mode==='update'?'更新 Cookie':'导入 Cookies'"></span>
         <button class="modal-close" @click="cookieModal.open=false">&times;</button>
       </div>
       <div class="modal-body">
@@ -416,7 +422,7 @@
             placeholder="SID=xxx; SSID=xxx; HSID=xxx; ...&#10;或每行一个：&#10;SID=xxx&#10;SSID=xxx&#10;HSID=xxx"
             rows="8"></textarea>
         </div>
-        <div style="display:flex;gap:12px">
+        <div style="display:flex;gap:12px" x-show="cookieModal.mode==='import'">
           <div class="modal-field" style="flex:1">
             <label>账号名称 <span style="color:var(--muted);font-weight:400">(可选)</span></label>
             <input class="modal-input" x-model="cookieModal.name" placeholder="My Account">
@@ -430,8 +436,8 @@
       <div class="modal-foot">
         <button class="btn" @click="cookieModal.open=false">取消</button>
         <button class="btn btn-primary" :disabled="cookieModal.importing" @click="importCookies()">
-          <span x-show="!cookieModal.importing">导入</span>
-          <span x-show="cookieModal.importing">导入中...</span>
+          <span x-show="!cookieModal.importing" x-text="cookieModal.mode==='update'?'更新并验证':'导入'"></span>
+          <span x-show="cookieModal.importing" x-text="cookieModal.mode==='update'?'更新验证中...':'导入中...'"></span>
         </button>
       </div>
     </div>
