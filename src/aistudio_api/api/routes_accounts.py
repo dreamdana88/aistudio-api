@@ -56,6 +56,16 @@ class ImportCookiesResponse(BaseModel):
     domain_summary: dict[str, int]  # domain -> cookie 数量
 
 
+class UpdateCookiesRequest(BaseModel):
+    cookies: str
+
+
+class UpdateCookiesResponse(BaseModel):
+    account_id: str
+    cookie_count: int
+    verified: bool
+
+
 @router.post("/login/start", response_model=LoginStartResponse)
 async def login_start(
     req: LoginStartRequest,
@@ -152,12 +162,105 @@ async def activate_account(
 async def delete_account(
     account_id: str,
     account_service=Depends(get_account_service),
+    runtime_state=Depends(get_runtime_state),
 ):
-    """删除账号。"""
-    success = account_service.delete_account(account_id)
-    if not success:
+    """Delete an account, including its auth file and persistent profile."""
+    account = account_service.get_account(account_id)
+    if account is None:
         raise HTTPException(status_code=404, detail="账号不存在")
+
+    active = account_service.get_active_account()
+    deleting_active = active is not None and active.id == account_id
+    browser_session = runtime_state.client._session if runtime_state.client else None
+    remaining = [item for item in account_service.list_accounts() if item.id != account_id]
+
+    async def _delete():
+        if deleting_active and browser_session is not None:
+            await browser_session.close()
+
+        success = account_service.delete_account(account_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="账号不存在")
+
+        if deleting_active and browser_session is not None:
+            if remaining:
+                await account_service.activate_account(
+                    remaining[0].id,
+                    browser_session,
+                    runtime_state.snapshot_cache,
+                    None,
+                )
+            else:
+                await browser_session.switch_auth(None)
+
+        if runtime_state.snapshot_cache is not None:
+            runtime_state.snapshot_cache.clear()
+
+    busy_lock = runtime_state.busy_lock
+    if busy_lock is not None:
+        async with busy_lock:
+            await _delete()
+    else:
+        await _delete()
+
     return {"ok": True}
+
+
+@router.put("/{account_id}/cookies", response_model=UpdateCookiesResponse)
+async def update_account_cookies(
+    account_id: str,
+    req: UpdateCookiesRequest,
+    account_service=Depends(get_account_service),
+    runtime_state=Depends(get_runtime_state),
+):
+    """Replace an account's cookies and rebuild its persistent browser profile."""
+    account = account_service.get_account(account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="账号不存在")
+
+    storage_state = parse_cookie_string(req.cookies)
+    if not storage_state["cookies"]:
+        raise HTTPException(status_code=400, detail="未解析到有效 Cookie")
+
+    browser_session = runtime_state.client._session if runtime_state.client else None
+    if browser_session is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
+
+    auth_path = account_service._store.get_auth_path_optional(
+        account_id,
+        require_exists=False,
+    )
+    if auth_path is None:
+        raise HTTPException(status_code=404, detail="账号目录不存在")
+
+    try:
+        busy_lock = runtime_state.busy_lock
+        if busy_lock is not None:
+            async with busy_lock:
+                saved_count = await browser_session.replace_account_cookies(
+                    req.cookies,
+                    str(auth_path),
+                )
+        else:
+            saved_count = await browser_session.replace_account_cookies(
+                req.cookies,
+                str(auth_path),
+            )
+    except Exception as exc:
+        log.warning("[update-cookies] verification failed for %s: %s", account_id, exc)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cookie 验证失败: {exc}",
+        ) from exc
+
+    if runtime_state.snapshot_cache is not None:
+        runtime_state.snapshot_cache.clear()
+
+    return UpdateCookiesResponse(
+        account_id=account_id,
+        cookie_count=saved_count,
+        verified=True,
+    )
 
 
 @router.put("/{account_id}", response_model=AccountResponse)

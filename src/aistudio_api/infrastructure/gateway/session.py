@@ -6,6 +6,7 @@ import asyncio
 
 import json
 import logging
+import shutil
 import threading
 import time
 import uuid
@@ -157,6 +158,9 @@ class BrowserSession:
     async def switch_auth(self, auth_file: str | None) -> None:
         await self._run_sync(self._switch_auth_sync, auth_file)
 
+    async def close(self) -> None:
+        await self._run_sync(self._close_sync)
+
     async def ensure_hook_page(self):
         await self._run_sync(self._ensure_hook_page_sync)
         return True
@@ -233,6 +237,14 @@ class BrowserSession:
                             log.warning("[import_cookies] failed to restore original browser context: %s", restore_exc)
 
         return await self._run_sync(_sync)
+
+    async def replace_account_cookies(self, cookie_string: str, auth_file: str) -> int:
+        """Replace one account's cookies, rebuild its profile, and verify login."""
+        return await self._run_sync(
+            self._replace_account_cookies_sync,
+            cookie_string,
+            auth_file,
+        )
 
     async def capture_template(self, model: str) -> dict[str, Any]:
         return await self._run_sync(self._capture_template_sync, model)
@@ -315,6 +327,56 @@ class BrowserSession:
             except Exception:
                 continue
         raise RuntimeError(f"bootstrap stayed on login flow: url={page.url}")
+
+    def _replace_account_cookies_sync(self, cookie_string: str, auth_file: str) -> int:
+        """Rebuild an account profile from new cookies and verify AI Studio login."""
+        from aistudio_api.infrastructure.account.cookie_refresher import load_cookies_from_string
+
+        new_cookies = load_cookies_from_string(cookie_string)
+        if not new_cookies:
+            raise ValueError("未解析到有效 Cookie")
+
+        target_auth = str(Path(auth_file).resolve())
+        target_profile = Path(self._derive_profile_dir(target_auth) or "")
+        original_auth = self._auth_file
+        original_profile = self._profile_dir
+        target_is_current = bool(
+            original_auth
+            and Path(original_auth).resolve() == Path(target_auth).resolve()
+        )
+
+        # A persistent profile must not be removed while Chromium is using it.
+        self._close_sync()
+        if target_profile.is_dir():
+            shutil.rmtree(target_profile)
+
+        self._save_cookies_sync(auth_file=target_auth, cookies=new_cookies)
+        try:
+            self._switch_auth_sync(target_auth)
+            context = self._ensure_browser_sync()
+            page = self._hook_page
+            if context is None or page is None:
+                raise RuntimeError("浏览器未能启动")
+            if "accounts.google.com" in (page.url or ""):
+                raise RuntimeError("Cookie 验证失败，仍停留在 Google 登录页")
+            self._save_cookies_sync(auth_file=target_auth)
+            return len(context.cookies())
+        except Exception:
+            self._close_sync()
+            if target_profile.is_dir():
+                shutil.rmtree(target_profile)
+            # Keep the new auth.json for retry, but never retain a partial profile.
+            self._save_cookies_sync(auth_file=target_auth, cookies=new_cookies)
+            raise
+        finally:
+            if not target_is_current:
+                self._switch_auth_sync(original_auth)
+                self._profile_dir = original_profile
+                if original_auth:
+                    try:
+                        self._ensure_browser_sync()
+                    except Exception as exc:
+                        log.warning("[replace-cookies] failed to restore active account: %s", exc)
 
     def _get_captured_info(self) -> tuple[str, dict[str, str]]:
         """Get captured URL and headers from template."""
