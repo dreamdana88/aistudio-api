@@ -159,7 +159,24 @@ function app() {
 
     async loadModels() { try { const r = await this.apiFetch('/v1/models'); const d = await r.json(); this.models = d.data || []; if (!this.model && this.models.length) this.model = this.models[0].id; this.saveToCache(); } catch (e) { } },
     async loadStats() { try { const r = await this.apiFetch('/stats'); const d = await r.json(); this.stats = d.models || {} } catch (e) { } },
-    async loadAccounts() { try { const [a, b] = await Promise.all([this.apiFetch('/accounts').then(r => r.json()), this.apiFetch('/accounts/active').then(r => r.json())]); this.accounts = a || []; this.activeId = b?.id || ''; this.activeAccount = b || {} } catch (e) { } },
+    async loadAccounts() {
+      try {
+        const accountsRes = await this.apiFetch('/accounts');
+        const accounts = accountsRes.ok ? await accountsRes.json().catch(() => []) : [];
+        let active = {};
+        try {
+          const activeRes = await this.apiFetch('/accounts/active');
+          if (activeRes.ok) active = await activeRes.json().catch(() => ({}));
+        } catch (e) { active = {} }
+        this.accounts = accounts || [];
+        this.activeId = active?.id || '';
+        this.activeAccount = active || {};
+      } catch (e) {
+        this.accounts = [];
+        this.activeId = '';
+        this.activeAccount = {};
+      }
+    },
     async loadRotation() { try { const r = await this.apiFetch('/rotation'); const d = await r.json(); this.rotationMode = d.mode || 'round_robin'; this.rotCfg.mode = d.mode || 'round_robin'; this.rotCfg.cooldown = d.cooldown_seconds || 60; this.rotationAccounts = d.accounts || {} } catch (e) { } },
 
     get accountRows() { return this.accounts.map(a => ({ ...a, ...(this.rotationAccounts[a.id] || {}) })) },
@@ -192,11 +209,16 @@ function app() {
           this.showToast(d.detail || '删除失败');
           return;
         }
+        this.accounts = this.accounts.filter(a => a.id !== account.id);
+        if (this.activeId === account.id) {
+          this.activeId = '';
+          this.activeAccount = {};
+        }
         this.showToast('账号已删除');
-        await this.loadAccounts();
-        await this.loadRotation();
+        this.loadAccounts();
+        this.loadRotation();
       } catch (e) {
-        this.showToast('删除失败');
+        this.showToast(`删除请求失败：${e?.message || '请刷新页面确认账号是否已删除'}`);
       }
     },
     async addAccount() {
@@ -279,15 +301,15 @@ function app() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
-        const d = await r.json();
+        const d = await r.json().catch(() => ({}));
         if (r.ok) {
-          this.showToast(updating ? 'Cookie 更新成功，账号验证通过' : `导入成功: ${d.cookie_count} 个 cookie`);
+          this.showToast(updating ? 'Cookie 已更新，旧 Profile 已清理；请重新测试模型' : `导入成功: ${d.cookie_count} 个 cookie`);
           this.cookieModal = { open: false, mode: 'import', accountId: '', cookies: '', name: '', email: '', importing: false };
           this.loadAccounts(); this.loadRotation();
         } else {
           this.showToast(d.detail || (updating ? 'Cookie 更新失败' : '导入失败'));
         }
-      } catch (e) { this.showToast('网络错误') }
+      } catch (e) { this.showToast(`网络错误：${e?.message || '请求未完成'}`) }
       finally { this.cookieModal.importing = false }
     },
 
