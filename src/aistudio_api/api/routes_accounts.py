@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import shutil
+
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from aistudio_api.api.dependencies import get_account_service, get_runtime_state
 from aistudio_api.infrastructure.account.cookie_parser import parse_cookie_string
-import logging
 
 log = logging.getLogger("aistudio.routes_accounts")
 
@@ -183,15 +186,22 @@ async def delete_account(
             raise HTTPException(status_code=404, detail="账号不存在")
 
         if deleting_active and browser_session is not None:
-            if remaining:
-                await account_service.activate_account(
-                    remaining[0].id,
-                    browser_session,
-                    runtime_state.snapshot_cache,
-                    None,
+            try:
+                if remaining:
+                    next_auth = account_service._store.get_auth_path_optional(
+                        remaining[0].id,
+                        require_exists=False,
+                    )
+                    account_service._store.set_active_account(remaining[0].id)
+                    await browser_session.switch_auth(str(next_auth) if next_auth else None)
+                else:
+                    await browser_session.switch_auth(None)
+            except Exception as exc:
+                log.warning(
+                    "[delete-account] account %s was deleted, but browser switch failed: %s",
+                    account_id,
+                    exc,
                 )
-            else:
-                await browser_session.switch_auth(None)
 
         if runtime_state.snapshot_cache is not None:
             runtime_state.snapshot_cache.clear()
@@ -233,24 +243,39 @@ async def update_account_cookies(
     if auth_path is None:
         raise HTTPException(status_code=404, detail="账号目录不存在")
 
+    cookie_count = len(storage_state["cookies"])
+    active = account_service.get_active_account()
+    updating_active = active is not None and active.id == account_id
+
     try:
         busy_lock = runtime_state.busy_lock
+        async def _replace_cookie_state():
+            if updating_active:
+                await browser_session.close()
+
+            profile_path = account_service._store.get_profile_path(account_id)
+            if profile_path is not None and profile_path.is_dir():
+                shutil.rmtree(profile_path, ignore_errors=True)
+
+            auth_path.parent.mkdir(parents=True, exist_ok=True)
+            auth_path.write_text(
+                json.dumps(storage_state, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+            if updating_active:
+                await browser_session.switch_auth(str(auth_path))
+
         if busy_lock is not None:
             async with busy_lock:
-                saved_count = await browser_session.replace_account_cookies(
-                    req.cookies,
-                    str(auth_path),
-                )
+                await _replace_cookie_state()
         else:
-            saved_count = await browser_session.replace_account_cookies(
-                req.cookies,
-                str(auth_path),
-            )
+            await _replace_cookie_state()
     except Exception as exc:
-        log.warning("[update-cookies] verification failed for %s: %s", account_id, exc)
+        log.warning("[update-cookies] failed for %s: %s", account_id, exc)
         raise HTTPException(
             status_code=400,
-            detail=f"Cookie 验证失败: {exc}",
+            detail=f"Cookie 更新失败: {exc}",
         ) from exc
 
     if runtime_state.snapshot_cache is not None:
@@ -258,8 +283,8 @@ async def update_account_cookies(
 
     return UpdateCookiesResponse(
         account_id=account_id,
-        cookie_count=saved_count,
-        verified=True,
+        cookie_count=cookie_count,
+        verified=False,
     )
 
 
