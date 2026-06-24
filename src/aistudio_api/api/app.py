@@ -7,9 +7,11 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from aistudio_api.config import settings
 from aistudio_api.infrastructure.gateway.client import AIStudioClient
 
 from .routes_anthropic import router as anthropic_router
@@ -90,6 +92,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Studio API", lifespan=lifespan)
+_cors_origins = list(settings.cors_origins)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(system_public_router)
 app.include_router(system_protected_router, dependencies=[Depends(require_api_key)])
 app.include_router(gemini_router, dependencies=[Depends(require_api_key)])

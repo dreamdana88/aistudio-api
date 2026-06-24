@@ -15,6 +15,7 @@ load_dotenv()
 DEFAULT_TEXT_MODEL = os.getenv("AISTUDIO_DEFAULT_TEXT_MODEL", "gemma-4-31b-it")
 DEFAULT_IMAGE_MODEL = os.getenv("AISTUDIO_DEFAULT_IMAGE_MODEL", "gemini-3.1-flash-image-preview")
 DEFAULT_BROWSER_PORT = 9222
+DEFAULT_CORS_ORIGINS = ""
 
 
 def _load_browser_engine() -> str:
@@ -72,6 +73,17 @@ def _load_api_keys() -> frozenset[str]:
             if key not in values:
                 values.append(key)
     return frozenset(values)
+
+
+def _load_cors_origins() -> tuple[str, ...]:
+    raw = os.getenv("AISTUDIO_CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+    origins: list[str] = []
+    for line in raw.splitlines():
+        for part in line.split(","):
+            origin = part.strip().rstrip("/")
+            if origin and origin not in origins:
+                origins.append(origin)
+    return tuple(origins)
 
 
 def _default_chromium_sandbox() -> bool:
@@ -167,6 +179,7 @@ class Settings:
     tmp_dir: str = os.getenv("AISTUDIO_TMP_DIR", "/tmp")
     proxy_url: str | None = discover_proxy_url()
     api_keys: frozenset[str] = _load_api_keys()
+    cors_origins: tuple[str, ...] = _load_cors_origins()
     timeout_replay: int = int(os.getenv("AISTUDIO_TIMEOUT_REPLAY", "120"))
     timeout_stream: int = int(os.getenv("AISTUDIO_TIMEOUT_STREAM", "120"))
     timeout_capture: int = int(os.getenv("AISTUDIO_TIMEOUT_CAPTURE", "30"))
