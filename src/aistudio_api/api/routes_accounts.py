@@ -317,7 +317,10 @@ async def import_cookies(
 
     支持格式: `key=value; key=value; ...`（浏览器开发者工具或 Cookie 编辑扩展导出格式）
 
-    流程: 解析 → 保存到 store → 注入浏览器 → 访问页面 → 导出 auth.json
+    流程: 解析 → 保存到 store → 清理旧 profile → 如为活跃账号则切换浏览器 auth
+
+    注意：这里不再等待浏览器访问 AI Studio 做验证。Google 页面跳转、地区页或风控页
+    都不应该把“导入按钮”卡死；实际可用性由后续模型请求验证。
     """
     # 1. 解析并保存到账号 store
     storage_state = parse_cookie_string(req.cookies)
@@ -340,18 +343,35 @@ async def import_cookies(
         account_id=req.account_id,
     )
 
-    # 2. 注入浏览器 + 访问页面 + 保存 auth.json
+    # 2. 清理旧 profile；如果这是当前活跃账号，让下一次请求用新 auth 重建 profile。
     try:
         browser_session = runtime_state.client._session if runtime_state.client else None
         if browser_session:
-            auth_path = account_service._store.get_auth_path(account.id)
-            count = await browser_session.import_cookies(
-                req.cookies,
-                auth_file=str(auth_path) if auth_path else None,
+            auth_path = account_service._store.get_auth_path_optional(
+                account.id,
+                require_exists=False,
             )
-            log.info("[import-cookies] injected %d cookies, saved auth.json", count)
+            active = account_service.get_active_account()
+            is_active = active is not None and active.id == account.id
+
+            async def _prepare_profile():
+                profile_path = account_service._store.get_profile_path(account.id)
+                if profile_path is not None and profile_path.is_dir():
+                    shutil.rmtree(profile_path, ignore_errors=True)
+                if is_active:
+                    await browser_session.switch_auth(str(auth_path) if auth_path else None)
+
+            busy_lock = runtime_state.busy_lock
+            if busy_lock is not None:
+                async with busy_lock:
+                    await _prepare_profile()
+            else:
+                await _prepare_profile()
+
+            if runtime_state.snapshot_cache is not None:
+                runtime_state.snapshot_cache.clear()
     except Exception as e:
-        log.warning("[import-cookies] browser injection failed: %s", e)
+        log.warning("[import-cookies] profile preparation failed: %s", e)
 
     return ImportCookiesResponse(
         account_id=account.id,
