@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -70,14 +71,19 @@ async def lifespan(app: FastAPI):
         len(account_store.list_accounts()),
     )
 
-    # 后台预热浏览器，避免首次请求延迟
+    # 后台预热浏览器，避免首次请求延迟。P1 headed login can skip this so the
+    # working browser stays down while the temporary login browser uses Xvfb.
     warmup_task = None
+    skip_warmup = os.getenv("AISTUDIO_SKIP_BROWSER_WARMUP", "0") in ("1", "true", "True")
     async def _warmup():
         try:
             await client.warmup()
         except Exception as e:
             logger.warning("浏览器预热失败: %s", e)
-    warmup_task = asyncio.create_task(_warmup())
+    if skip_warmup:
+        logger.info("Skipping browser warmup (AISTUDIO_SKIP_BROWSER_WARMUP=1)")
+    else:
+        warmup_task = asyncio.create_task(_warmup())
 
     yield
     logger.info("Shutting down")

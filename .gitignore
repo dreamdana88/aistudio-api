@@ -25,3 +25,7 @@ data2/
 .ai_memory
 .antigravitycli
 chrome-headless
+.p0-baseline/
+BROWSER_LOGIN_PLAN.md
+P1_PATCH_TASK.md
+通用网页调试说明与规则.md

@@ -16,6 +16,8 @@ __pycache__
 dist
 build
 .pytest_cache
+.venv
+venv
 
 # Environment (use .env.example as reference, mount .env at runtime)
 .env
@@ -42,6 +44,7 @@ tests/
 # Temporary files
 /tmp
 snapshot_*.log
+.p0-baseline
 
 # Chrome/Chromium profiles (not needed in container)
 chromium-profile/

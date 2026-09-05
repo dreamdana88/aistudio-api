@@ -6,6 +6,7 @@ services:
     init: true
     ports:
       - "127.0.0.1:${AISTUDIO_BIND_PORT:-8080}:8080"
+      - "127.0.0.1:${AISTUDIO_NOVNC_BIND_PORT:-6080}:6080"
     volumes:
       - ./data:/app/data
       - cloakbrowser-cache:/root/.cloakbrowser
@@ -19,6 +20,8 @@ services:
       AISTUDIO_API_KEY: "${AISTUDIO_API_KEY:-}"
       AISTUDIO_PROXY: "${AISTUDIO_PROXY:-}"
       AISTUDIO_MAX_CONCURRENCY: "${AISTUDIO_MAX_CONCURRENCY:-1}"
+      AISTUDIO_ENABLE_DISPLAY: "${AISTUDIO_ENABLE_DISPLAY:-1}"
+      AISTUDIO_SKIP_BROWSER_WARMUP: "${AISTUDIO_SKIP_BROWSER_WARMUP:-0}"
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
       interval: 30s

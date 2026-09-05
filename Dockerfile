@@ -47,6 +47,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-zenhei \
     # Utilities
     curl \
+    procps \
+    # Headed login display: Xvfb + VNC + noVNC (not a full desktop)
+    xvfb \
+    x11vnc \
+    novnc \
+    websockify \
+    dbus-x11 \
     # Cleanup
     && rm -rf /var/lib/apt/lists/*
 
@@ -64,16 +71,17 @@ COPY src/ src/
 COPY main.py .
 COPY config.yaml .
 COPY docker/entrypoint.sh /usr/local/bin/aistudio-entrypoint
+COPY docker/p1_headed_login.py /app/docker/p1_headed_login.py
 
 # Create necessary directories
-RUN mkdir -p /app/data /root/.cloakbrowser /tmp
-
-# Set permissions
-RUN chmod +x /app/main.py /usr/local/bin/aistudio-entrypoint
+RUN mkdir -p /app/data /root/.cloakbrowser /tmp \
+    && sed -i 's/\r$//' /usr/local/bin/aistudio-entrypoint /app/docker/p1_headed_login.py \
+    && chmod +x /app/main.py /usr/local/bin/aistudio-entrypoint /app/docker/p1_headed_login.py
 
 # Expose ports
 # 8080: API server
-EXPOSE 8080
+# 6080: noVNC (publish to host loopback only; do not map 5900 or 9222)
+EXPOSE 8080 6080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \

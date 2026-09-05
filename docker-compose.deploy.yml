@@ -5,7 +5,8 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "127.0.0.1:${AISTUDIO_BIND_PORT:-8080}:8080"
+      - "127.0.0.1:${AISTUDIO_BIND_PORT:-18080}:8080"
+      - "127.0.0.1:${AISTUDIO_NOVNC_BIND_PORT:-6080}:6080"
     volumes:
       - aistudio-api-data:/app/data
       - aistudio-api-browser-cache:/root/.cloakbrowser
@@ -20,6 +21,8 @@ services:
       AISTUDIO_REQUIRE_API_KEY: "1"
       AISTUDIO_PROXY: "${AISTUDIO_PROXY:-}"
       AISTUDIO_MAX_CONCURRENCY: "${AISTUDIO_MAX_CONCURRENCY:-1}"
+      AISTUDIO_ENABLE_DISPLAY: "${AISTUDIO_ENABLE_DISPLAY:-1}"
+      AISTUDIO_SKIP_BROWSER_WARMUP: "${AISTUDIO_SKIP_BROWSER_WARMUP:-0}"
     mem_limit: 1800m
     cpus: 1.75
     shm_size: 512m
