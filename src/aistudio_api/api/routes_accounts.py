@@ -7,9 +7,11 @@ import logging
 import shutil
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from aistudio_api.api.dependencies import get_account_service, get_runtime_state
+from aistudio_api.config import settings
+from aistudio_api.domain.errors import LoginInProgressError
 from aistudio_api.infrastructure.account.cookie_parser import parse_cookie_string
 
 log = logging.getLogger("aistudio.routes_accounts")
@@ -23,6 +25,15 @@ class LoginStartRequest(BaseModel):
 
 class LoginStartResponse(BaseModel):
     session_id: str
+    display_url: str
+    display_via: str
+    instruction: str
+
+
+class LoginCancelResponse(BaseModel):
+    session_id: str
+    status: str
+    error: str | None = None
 
 
 class AccountResponse(BaseModel):
@@ -42,14 +53,15 @@ class LoginStatusResponse(BaseModel):
 
 
 class UpdateAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     name: str
 
 
 class ImportCookiesRequest(BaseModel):
-    cookies: str  # "key=value; key=value; ..." 格式
-    name: str | None = None  # 可选的账号名称
-    email: str | None = None  # 可选的邮箱
-    account_id: str | None = None  # 可选的账号 ID（覆盖已有账号）
+    model_config = ConfigDict(extra="forbid")
+    cookies: str
+    name: str | None = None
+    account_id: str | None = None
 
 
 class ImportCookiesResponse(BaseModel):
@@ -75,8 +87,33 @@ async def login_start(
     account_service=Depends(get_account_service),
 ):
     """启动 Google 登录流程。"""
-    session_id = await account_service.start_login(req.name)
-    return LoginStartResponse(session_id=session_id)
+    try:
+        session_id = await account_service.start_login(req.name)
+    except LoginInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    display = settings.login_display_info()
+    return LoginStartResponse(
+        session_id=session_id,
+        display_url=display["url"],
+        display_via=display["via"],
+        instruction=display["instruction"],
+    )
+
+
+@router.post("/login/cancel/{session_id}", response_model=LoginCancelResponse)
+async def login_cancel(
+    session_id: str,
+    account_service=Depends(get_account_service),
+):
+    """取消进行中的登录会话。关闭 noVNC 页面不会自动取消。"""
+    session = await account_service.cancel_login(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="登录会话不存在")
+    return LoginCancelResponse(
+        session_id=session.session_id,
+        status=session.status.value,
+        error=session.error,
+    )
 
 
 @router.get("/login/status/{session_id}", response_model=LoginStatusResponse)
@@ -168,51 +205,16 @@ async def delete_account(
     runtime_state=Depends(get_runtime_state),
 ):
     """Delete an account, including its auth file and persistent profile."""
-    account = account_service.get_account(account_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="账号不存在")
-
-    active = account_service.get_active_account()
-    deleting_active = active is not None and active.id == account_id
     browser_session = runtime_state.client._session if runtime_state.client else None
-    remaining = [item for item in account_service.list_accounts() if item.id != account_id]
-
-    async def _delete():
-        if deleting_active and browser_session is not None:
-            await browser_session.close()
-
-        success = account_service.delete_account(account_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="账号不存在")
-
-        if deleting_active and browser_session is not None:
-            try:
-                if remaining:
-                    next_auth = account_service._store.get_auth_path_optional(
-                        remaining[0].id,
-                        require_exists=False,
-                    )
-                    account_service._store.set_active_account(remaining[0].id)
-                    await browser_session.switch_auth(str(next_auth) if next_auth else None)
-                else:
-                    await browser_session.switch_auth(None)
-            except Exception as exc:
-                log.warning(
-                    "[delete-account] account %s was deleted, but browser switch failed: %s",
-                    account_id,
-                    exc,
-                )
-
-        if runtime_state.snapshot_cache is not None:
-            runtime_state.snapshot_cache.clear()
-
-    busy_lock = runtime_state.busy_lock
-    if busy_lock is not None:
-        async with busy_lock:
-            await _delete()
-    else:
-        await _delete()
-
+    deleted = await account_service.delete_account(
+        account_id,
+        browser_session,
+        runtime_state.snapshot_cache,
+        runtime_state.busy_lock,
+        settings.max_concurrency,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="账号不存在")
     return {"ok": True}
 
 
@@ -338,7 +340,7 @@ async def import_cookies(
 
     account = account_service._store.save_account(
         name=name,
-        email=req.email,
+        email=None,
         storage_state=storage_state,
         account_id=req.account_id,
     )

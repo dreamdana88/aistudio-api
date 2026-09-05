@@ -161,12 +161,9 @@ class CamoufoxManager:
                 await self.start()
             self._browser = await playwright.firefox.connect(self._ws_endpoint)
             return self._browser
-        from cloakbrowser import launch_async
-        from aistudio_api.config import build_browser_proxy
-        self._browser = await launch_async(
-            headless=self.headless,
-            proxy=build_browser_proxy(settings.proxy_url),
-        )
+        from aistudio_api.infrastructure.browser.browser_engine import async_launch_browser
+
+        self._browser = await async_launch_browser(headless=self.headless)
         logger.info("Started %s", describe_browser_backend())
         return self._browser
 

@@ -10,12 +10,16 @@ try:
     import termios
 except ImportError:
     termios = None
+import os
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
+
+from aistudio_api.config import settings
+from aistudio_api.domain.errors import LoginInProgressError
 
 from aistudio_api.infrastructure.browser.browser_engine import (
     async_maximize_page_window,
@@ -31,6 +35,10 @@ class LoginStatus(str, Enum):
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+LOGIN_DONE_HOSTS = {"aistudio.google.com"}
 
 
 @dataclass
@@ -72,6 +80,12 @@ class LoginService:
     def _generate_session_id(self) -> str:
         return f"login_{secrets.token_hex(8)}"
 
+    def active_session(self) -> LoginSession | None:
+        for session in self._sessions.values():
+            if session.status == LoginStatus.PENDING:
+                return session
+        return None
+
     async def start_login(
         self,
         account_store: Any,  # AccountStore
@@ -81,10 +95,11 @@ class LoginService:
         ui_locale: str | None = None,
     ) -> str:
         """启动登录流程，返回 session_id。"""
+        if self.active_session() is not None:
+            raise LoginInProgressError("已有登录进行中，请等待完成或取消后再试")
         session_id = self._generate_session_id()
         session = LoginSession(session_id=session_id)
         self._sessions[session_id] = session
-        # 启动后台任务
         task = asyncio.create_task(
             self._login_worker(
                 session_id,
@@ -100,6 +115,24 @@ class LoginService:
     def get_status(self, session_id: str) -> LoginSession | None:
         """获取登录状态。"""
         return self._sessions.get(session_id)
+
+    async def cancel_login(self, session_id: str) -> LoginSession | None:
+        session = self._sessions.get(session_id)
+        if session is None:
+            return None
+        if session.status != LoginStatus.PENDING:
+            return session
+        session.status = LoginStatus.CANCELLED
+        session.error = "已取消"
+        task = self._tasks.get(session_id)
+        if task is not None and not task.done():
+            task.cancel()
+        return session
+
+    def _prepare_headed_display(self) -> None:
+        display = os.environ.get("AISTUDIO_LOGIN_DISPLAY") or os.environ.get("DISPLAY")
+        if display:
+            os.environ["DISPLAY"] = display
 
     def _terminal_available(self) -> bool:
         return sys.stdin.isatty() and sys.stdout.isatty()
@@ -768,6 +801,39 @@ class LoginService:
                     last_prompt_at = time.monotonic()
                     print(f"[{session_id}] 页面还停留在当前步骤，请按页面提示确认后再继续。")
 
+    async def _detect_account_email(self, page) -> str | None:
+        """Read the signed-in account control after the page has rendered.
+
+        Read aria-label itself (the avatar often has no text), accept Workspace
+        addresses, and leave ambiguous account menus unidentified.
+        """
+        try:
+            result = await page.wait_for_function(r"""() => {
+                const pattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+                const groups = [
+                    '#gb a[aria-label*="@"], #gb button[aria-label*="@"]',
+                    'header a[aria-label*="@"], header button[aria-label*="@"]',
+                    '[data-email]'
+                ];
+                for (const selector of groups) {
+                    const addresses = new Set();
+                    for (const el of document.querySelectorAll(selector)) {
+                        if (!el.getClientRects().length) continue;
+                        const value = el.getAttribute('data-email') || el.getAttribute('aria-label') || '';
+                        for (const email of value.match(pattern) || []) addresses.add(email);
+                    }
+                    if (addresses.size > 1) return false;
+                    if (addresses.size === 1) return [...addresses][0];
+                }
+                return false;
+            }""", timeout=8000)
+            try:
+                return await result.json_value()
+            finally:
+                await result.dispose()
+        except Exception:
+            return None
+
     async def _login_worker(
         self,
         session_id: str,
@@ -787,7 +853,8 @@ class LoginService:
         browser = None
         terminal_task: asyncio.Task | None = None
         try:
-            # 启动浏览器
+            if not headless:
+                self._prepare_headed_display()
             logger.info("启动登录浏览器，端口 %d", self._port)
             await manager.start()
             logger.info("浏览器后端已准备: %s", describe_browser_backend())
@@ -808,30 +875,18 @@ class LoginService:
             def abort_login(reason: str) -> None:
                 if login_done.is_set() or login_aborted.is_set():
                     return
+                if session.status == LoginStatus.CANCELLED:
+                    login_aborted.set()
+                    return
                 session.status = LoginStatus.FAILED
                 session.error = reason
                 login_aborted.set()
                 logger.warning(reason)
 
             async def on_navigation(frame):
-                nonlocal detected_email
-                url = frame.url
-                logger.debug("导航到: %s", url)
-                # 检测登录完成：跳转到非登录页面
-                if "accounts.google.com" not in url and "google.com" in url:
-                    # 尝试提取邮箱
-                    try:
-                        detected_email = await page.evaluate("""
-                            () => {
-                                // 尝试从页面获取邮箱
-                                const el = document.querySelector('[data-email]')
-                                    || document.querySelector('.gb_nb')
-                                    || document.querySelector('[aria-label*="@"]');
-                                return el ? (el.getAttribute('data-email') || el.textContent.trim()) : null;
-                            }
-                        """)
-                    except Exception:
-                        pass
+                if frame != page.main_frame:
+                    return
+                if urlparse(frame.url).hostname in LOGIN_DONE_HOSTS:
                     login_done.set()
 
             def on_page_close():
@@ -859,15 +914,15 @@ class LoginService:
                 self._terminal_login_loop(session_id, page, login_done, headless=headless)
             )
 
-            # 等待用户完成登录（最多 5 分钟）
             logger.info("等待用户登录...")
+            timeout_seconds = max(30, settings.login_timeout_seconds)
             wait_tasks = [
                 asyncio.create_task(login_done.wait()),
                 asyncio.create_task(login_aborted.wait()),
             ]
             done, pending = await asyncio.wait(
                 wait_tasks,
-                timeout=300,
+                timeout=timeout_seconds,
                 return_when=asyncio.FIRST_COMPLETED,
             )
             for task in pending:
@@ -877,54 +932,21 @@ class LoginService:
                     await task
                 except asyncio.CancelledError:
                     pass
+            if session.status == LoginStatus.CANCELLED:
+                return
             if not done:
                 session.status = LoginStatus.FAILED
-                session.error = "登录超时（5 分钟）"
+                session.error = f"登录超时（{timeout_seconds} 秒）"
                 logger.warning("登录超时")
                 return
             if login_aborted.is_set():
                 return
 
-            # 登录完成，保存 storage state
-            logger.info("登录完成，保存 cookie")
+            detected_email = await self._detect_account_email(page)
+            if detected_email is None:
+                logger.info("未能自动识别登录账号邮箱")
+
             storage_state = await context.storage_state()
-
-            # 尝试从 Google 账号页面获取邮箱
-            if detected_email is None:
-                try:
-                    # 导航到 Google 账号页面
-                    logger.info("尝试从 Google 账号页面获取邮箱")
-                    await page.goto("https://myaccount.google.com", wait_until="networkidle")
-                    await asyncio.sleep(2)  # 等待页面加载
-
-                    # 从页面提取邮箱（优先匹配 *@gmail.com）
-                    detected_email = await page.evaluate("""
-                        () => {
-                            const text = document.body.innerText;
-                            // 直接匹配 *@gmail.com 邮箱
-                            const gmailRegex = /[a-zA-Z0-9._%+-]+@gmail\\.com/g;
-                            const matches = text.match(gmailRegex);
-                            return matches ? matches[0] : null;
-                        }
-                    """)
-                except Exception as e:
-                    logger.warning("从 Google 账号页面获取邮箱失败: %s", e)
-
-            # 如果还是没提取到邮箱，尝试从 storage state 的 origins 中提取
-            if detected_email is None:
-                try:
-                    # 检查 localStorage 中是否有用户信息
-                    for origin in storage_state.get("origins", []):
-                        for item in origin.get("localStorage", []):
-                            if "email" in item.get("name", "").lower():
-                                detected_email = item.get("value")
-                                break
-                        if detected_email:
-                            break
-                except Exception:
-                    pass
-
-            # 保存账号
             account_name = name or detected_email or "Google 账号"
             if detected_email and not name:
                 account_name = detected_email
@@ -939,10 +961,16 @@ class LoginService:
             session.email = detected_email
             logger.info("账号已保存: %s (%s)", meta.id, detected_email)
 
+        except asyncio.CancelledError:
+            if session.status == LoginStatus.PENDING:
+                session.status = LoginStatus.CANCELLED
+                session.error = "已取消"
+            raise
         except Exception as e:
-            session.status = LoginStatus.FAILED
-            session.error = str(e)
-            logger.exception("登录失败")
+            if session.status != LoginStatus.CANCELLED:
+                session.status = LoginStatus.FAILED
+                session.error = str(e)
+                logger.exception("登录失败")
         finally:
             if terminal_task is not None:
                 terminal_task.cancel()

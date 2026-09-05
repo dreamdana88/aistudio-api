@@ -164,6 +164,9 @@ class Settings:
     )
     browser_python: str | None = _load_env("AISTUDIO_BROWSER_PYTHON", "AISTUDIO_CAMOUFOX_PYTHON")
     login_browser_port: int = _load_int_env("AISTUDIO_LOGIN_BROWSER_PORT", "AISTUDIO_LOGIN_CAMOUFOX_PORT", default=9223)
+    login_timeout_seconds: int = _load_int_env("AISTUDIO_LOGIN_TIMEOUT_SECONDS", default=600)
+    novnc_public_url: str | None = _load_env("AISTUDIO_NOVNC_PUBLIC_URL")
+    novnc_bind_port: int = _load_int_env("AISTUDIO_NOVNC_BIND_PORT", default=6080)
     auth_file: str | None = discover_auth_file()
     tmp_dir: str = os.getenv("AISTUDIO_TMP_DIR", tempfile.gettempdir())
     proxy_url: str | None = discover_proxy_url()
@@ -197,6 +200,21 @@ class Settings:
     @property
     def login_camoufox_port(self) -> int:
         return self.login_browser_port
+
+    def login_display_info(self) -> dict[str, str]:
+        path = "/vnc.html?autoconnect=1&resize=scale"
+        public = (self.novnc_public_url or "").strip().rstrip("/")
+        if public:
+            return {
+                "url": f"{public}{path}",
+                "via": "public",
+                "instruction": "打开远程画面，在 Google 页面完成登录和验证",
+            }
+        return {
+            "url": f"http://127.0.0.1:{self.novnc_bind_port}{path}",
+            "via": "ssh_tunnel",
+            "instruction": "通过 SSH 隧道在本机打开远程画面，在 Google 页面完成登录和验证",
+        }
 
     @property
     def auth_enabled(self) -> bool:

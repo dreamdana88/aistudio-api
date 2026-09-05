@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 from typing import Any
 
@@ -203,9 +204,11 @@ async def async_launch_browser(*, headless: bool | None = None) -> Any:
     from cloakbrowser import launch_async
 
     headless = settings.browser_headless if headless is None else headless
+    extra_args = ["--disable-dev-shm-usage"] if os.name == "posix" else None
     return await launch_async(
         headless=headless,
         proxy=build_camoufox_proxy(settings.proxy_url),
         stealth_args=False,
-        args=_build_cloakbrowser_args(headless=headless),
+        chromium_sandbox=settings.browser_chromium_sandbox,
+        args=_build_cloakbrowser_args(headless=headless, extra_args=extra_args),
     )

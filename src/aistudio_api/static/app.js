@@ -10,8 +10,9 @@ function app() {
     msgs: [], draft: '', selectedImages: [], busy: false,
     cfg: { thinking: 'off', search: 'off', stream: 'on', temperature: 1.0, topP: 0.95, maxTokens: 32768, safety: 'on' },
     toast: { show: false, msg: '', t: null },
-    cookieModal: { open: false, mode: 'import', accountId: '', cookies: '', name: '', email: '', importing: false },
+    cookieModal: { open: false, mode: 'import', accountId: '', cookies: '', name: '', importing: false },
     loginInProgress: false,
+    loginSession: null,
 
     async init() {
       await this.checkAuth();
@@ -187,7 +188,7 @@ function app() {
     async forceNext() { try { await this.apiFetch('/rotation/next', { method: 'POST' }); this.showToast('已切换账号'); this.loadAccounts() } catch (e) { this.showToast('切换失败') } },
     async activateAccount(id) { try { await this.apiFetch(`/accounts/${id}/activate`, { method: 'POST' }); this.showToast('已激活'); this.loadAccounts(); this.loadRotation() } catch (e) { this.showToast('激活失败') } },
     openImportCookies() {
-      this.cookieModal = { open: true, mode: 'import', accountId: '', cookies: '', name: '', email: '', importing: false };
+      this.cookieModal = { open: true, mode: 'import', accountId: '', cookies: '', name: '', importing: false };
     },
     openUpdateCookies(account) {
       this.cookieModal = {
@@ -196,7 +197,6 @@ function app() {
         accountId: account.id,
         cookies: '',
         name: account.name || '',
-        email: account.email || '',
         importing: false
       };
     },
@@ -221,6 +221,14 @@ function app() {
         this.showToast(`删除请求失败：${e?.message || '请刷新页面确认账号是否已删除'}`);
       }
     },
+    get loginStepLabel() {
+      const status = this.loginSession && this.loginSession.status;
+      if (status === 'completed') return '登录成功';
+      if (status === 'failed') return '登录失败';
+      if (status === 'cancelled') return '已取消';
+      if (this.loginInProgress) return '等待验证';
+      return '等待验证';
+    },
     async addAccount() {
       if (this.loginInProgress) return;
       this.loginInProgress = true;
@@ -232,10 +240,17 @@ function app() {
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok || !d.session_id) {
-          this.showToast(d.detail || '启动登录失败');
+          this.showToast(typeof d.detail === 'string' ? d.detail : (d.detail || '启动登录失败'));
           return;
         }
-        this.showToast('登录已开始，请在弹出的浏览器完成登录');
+        this.loginSession = {
+          session_id: d.session_id,
+          display_url: d.display_url,
+          display_via: d.display_via,
+          instruction: d.instruction,
+          status: 'pending',
+        };
+        this.showToast(d.instruction || '登录已开始，请打开远程画面完成登录');
         await this.pollLoginStatus(d.session_id);
       } catch (e) {
         this.showToast('网络错误');
@@ -243,8 +258,24 @@ function app() {
         this.loginInProgress = false;
       }
     },
+    async cancelLogin() {
+      const sessionId = this.loginSession && this.loginSession.session_id;
+      if (!sessionId) return;
+      try {
+        const r = await this.apiFetch(`/accounts/login/cancel/${sessionId}`, { method: 'POST' });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          this.showToast(d.detail || '取消登录失败');
+          return;
+        }
+        if (this.loginSession) this.loginSession.status = d.status || 'cancelled';
+        this.showToast('已取消登录');
+      } catch (e) {
+        this.showToast('取消登录失败');
+      }
+    },
     async pollLoginStatus(sessionId) {
-      const deadline = Date.now() + 305000;
+      const deadline = Date.now() + 605000;
       while (Date.now() < deadline) {
         await new Promise(resolve => setTimeout(resolve, 2000));
         try {
@@ -254,13 +285,20 @@ function app() {
             this.showToast(d.detail || '查询登录状态失败');
             return;
           }
+          if (this.loginSession && this.loginSession.session_id === sessionId) {
+            this.loginSession.status = d.status;
+          }
           if (d.status === 'completed') {
             if (d.account_id) {
               await this.apiFetch(`/accounts/${d.account_id}/activate`, { method: 'POST' });
             }
-            this.showToast(`登录成功${d.email ? ': ' + d.email : ''}`);
+            this.showToast(d.email ? `登录成功: ${d.email}` : '登录成功，但邮箱未识别');
             this.loadAccounts();
             this.loadRotation();
+            return;
+          }
+          if (d.status === 'cancelled') {
+            this.showToast('已取消登录');
             return;
           }
           if (d.status === 'failed') {
@@ -277,7 +315,7 @@ function app() {
     loginErrorMessage(error) {
       if (!error) return '登录失败';
       if (error.includes('XServer') || error.includes('Missing X server') || error.includes('$DISPLAY')) {
-        return '登录浏览器启动失败：Docker 容器没有可用显示服务。请导入 Cookies，或配置 XServer 后重启容器。';
+        return '登录浏览器启动失败：容器显示服务未就绪。请确认 Xvfb 已启动，并打开远程画面。';
       }
       const msg = `登录失败：${error}`;
       return msg.length > 180 ? `${msg.slice(0, 177)}...` : msg;
@@ -292,7 +330,6 @@ function app() {
         const updating = this.cookieModal.mode === 'update';
         const body = { cookies };
         if (!updating && this.cookieModal.name.trim()) body.name = this.cookieModal.name.trim();
-        if (!updating && this.cookieModal.email.trim()) body.email = this.cookieModal.email.trim();
         const url = updating
           ? `/accounts/${this.cookieModal.accountId}/cookies`
           : '/accounts/import-cookies';
@@ -304,7 +341,7 @@ function app() {
         const d = await r.json().catch(() => ({}));
         if (r.ok) {
           this.showToast(updating ? 'Cookie 已更新，旧 Profile 已清理；请重新测试模型' : `导入成功: ${d.cookie_count} 个 cookie`);
-          this.cookieModal = { open: false, mode: 'import', accountId: '', cookies: '', name: '', email: '', importing: false };
+          this.cookieModal = { open: false, mode: 'import', accountId: '', cookies: '', name: '', importing: false };
           this.loadAccounts(); this.loadRotation();
         } else {
           this.showToast(d.detail || (updating ? 'Cookie 更新失败' : '导入失败'));

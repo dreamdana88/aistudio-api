@@ -332,6 +332,28 @@
                 x-text="loginInProgress?'登录中...':'+ 登录账号'"></button>
             </div>
           </div>
+          <div class="card" style="margin-bottom:24px" x-show="loginSession">
+            <div class="card-head">浏览器登录</div>
+            <div style="padding:20px;display:flex;flex-direction:column;gap:12px">
+              <div style="font-size:14px;color:var(--muted)" x-text="loginSession && loginSession.instruction"></div>
+              <ol style="padding-left:20px;line-height:1.8;font-size:14px">
+                <li>开始登录</li>
+                <li>
+                  <a :href="loginSession && loginSession.display_url" target="_blank" rel="noopener">打开远程画面</a>
+                  <span style="color:var(--muted)">（关闭画面不会取消登录，可重新打开）</span>
+                </li>
+                <li x-text="loginStepLabel"></li>
+                <li>登录成功或失败</li>
+              </ol>
+              <div style="font-size:13px;color:var(--muted)" x-show="loginSession && loginSession.display_via==='ssh_tunnel'">
+                默认通过 SSH 隧道访问本机 127.0.0.1，不要把 VNC 端口映射到公网。
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <a class="btn btn-primary" :href="loginSession && loginSession.display_url" target="_blank" rel="noopener">打开远程画面</a>
+                <button class="btn" :disabled="!loginInProgress" @click="cancelLogin()">取消登录</button>
+              </div>
+            </div>
+          </div>
           <div class="card" style="margin-bottom:24px">
             <div class="card-head">轮询设置</div>
             <div style="padding:20px;display:flex;flex-wrap:wrap;gap:16px;align-items:end">
@@ -377,7 +399,7 @@
                   <template x-for="a in accountRows" :key="a.id">
                     <tr>
                       <td>
-                        <div style="font-weight:500" x-text="a.email||a.name||a.id"></div>
+                        <div style="font-weight:500" x-text="a.email||'邮箱未识别'"></div>
                         <div style="font-size:12px;color:var(--muted);font-family:monospace" x-text="a.id"></div>
                       </td>
                       <td x-text="a.requests||0"></td>
@@ -422,15 +444,9 @@
             placeholder="SID=xxx; SSID=xxx; HSID=xxx; ...&#10;或每行一个：&#10;SID=xxx&#10;SSID=xxx&#10;HSID=xxx"
             rows="8"></textarea>
         </div>
-        <div style="display:flex;gap:12px" x-show="cookieModal.mode==='import'">
-          <div class="modal-field" style="flex:1">
-            <label>账号名称 <span style="color:var(--muted);font-weight:400">(可选)</span></label>
-            <input class="modal-input" x-model="cookieModal.name" placeholder="My Account">
-          </div>
-          <div class="modal-field" style="flex:1">
-            <label>邮箱 <span style="color:var(--muted);font-weight:400">(可选)</span></label>
-            <input class="modal-input" x-model="cookieModal.email" placeholder="user@gmail.com">
-          </div>
+        <div class="modal-field" x-show="cookieModal.mode==='import'">
+          <label>账号名称 <span style="color:var(--muted);font-weight:400">(可选)</span></label>
+          <input class="modal-input" x-model="cookieModal.name" placeholder="My Account">
         </div>
       </div>
       <div class="modal-foot">

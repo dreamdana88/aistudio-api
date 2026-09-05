@@ -39,6 +39,10 @@ class RequestError(AistudioError):
         super().__init__(f"HTTP {status}: {message}")
 
 
+class LoginInProgressError(AistudioError):
+    """A headed login session is already running."""
+
+
 def classify_error(status: int, body: str) -> AistudioError:
     if status == 429:
         return UsageLimitExceeded(f"配额用完: {body[:200]}")
