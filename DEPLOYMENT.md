@@ -31,10 +31,18 @@ openssl rand -hex 32
 
 ## 2. 在 1Panel 创建 Compose
 
-在 1Panel 的容器编排中创建项目，将仓库里的以下文件放在同一项目目录：
+Docker 相关文件在仓库的 `docker/` 目录。在 1Panel 的容器编排中创建项目时，把下面两个文件放到同一项目目录：
 
-- `docker-compose.deploy.yml`
-- `config.yaml`
+- `docker/docker-compose.deploy.yml`
+- `config.yaml`（仓库根目录）
+
+若 compose 文件与 `config.yaml` 在同一层，把编排里的挂载改成 `./config.yaml`。按仓库原样部署时，挂载是 `../config.yaml`（相对 `docker/` 目录）。
+
+在仓库根目录启动：
+
+```bash
+docker compose --env-file .env -f docker/docker-compose.deploy.yml up -d
+```
 
 Compose 环境变量至少填写：
 
@@ -45,8 +53,7 @@ AISTUDIO_BIND_PORT=8080
 AISTUDIO_MAX_CONCURRENCY=1
 ```
 
-使用 `docker-compose.deploy.yml` 启动。服务只监听
-`127.0.0.1:8080`，不会直接暴露到公网。
+服务只监听 `127.0.0.1:18080`（可用 `AISTUDIO_BIND_PORT` 修改），不会直接暴露到公网。 noVNC 监听 `127.0.0.1:6080`。
 
 首次启动会将 CloakBrowser 下载到独立持久卷。账号数据使用
 `aistudio-api-data`，浏览器缓存使用 `aistudio-api-browser-cache`；
@@ -56,7 +63,7 @@ AISTUDIO_MAX_CONCURRENCY=1
 
 在 1Panel 创建反向代理网站：
 
-- 上游地址：`http://127.0.0.1:8080`
+- 上游地址：`http://127.0.0.1:18080`（或你设置的 `AISTUDIO_BIND_PORT`）
 - 启用 HTTPS 并申请证书
 - 强制跳转 HTTPS
 

@@ -25,6 +25,8 @@ Docker 或 1Panel 部署到云服务器，并接入 SillyTavern。
 
 ## 1Panel 部署
 
+Dockerfile 与 Compose 文件在仓库的 `docker/` 目录。1Panel 也可以直接粘贴下面这份编排。
+
 ### 1. 创建容器编排
 
 进入：
