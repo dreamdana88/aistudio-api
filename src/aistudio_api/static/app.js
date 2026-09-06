@@ -1,4 +1,16 @@
 
+function appBase() {
+  return (typeof window !== 'undefined' && window.APP_BASE) || '';
+}
+
+function withBase(url) {
+  if (!url || url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+    return url;
+  }
+  const base = appBase();
+  return url.startsWith('/') ? base + url : url;
+}
+
 function app() {
   return {
     view: 'chat', sidebarOpen: false, configOpen: false, openSelect: null,
@@ -29,23 +41,23 @@ function app() {
 
     async checkAuth() {
       try {
-        const res = await fetch('/auth/check');
+        const res = await fetch(withBase('/auth/check'));
         const data = await res.json();
         this.authEnabled = data.auth_enabled;
 
         if (this.authEnabled) {
           const token = localStorage.getItem('asp_api_token');
           if (!token) {
-            window.location.href = '/static/login.html';
+            window.location.href = withBase('/static/login.html');
             return;
           }
           // 验证 token 是否有效
-          const verifyRes = await fetch('/auth/verify', {
+          const verifyRes = await fetch(withBase('/auth/verify'), {
             headers: { 'Authorization': `Bearer ${token}` }
           });
           if (!verifyRes.ok) {
             localStorage.removeItem('asp_api_token');
-            window.location.href = '/static/login.html';
+            window.location.href = withBase('/static/login.html');
             return;
           }
           this.auth.token = token;
@@ -58,7 +70,7 @@ function app() {
     logout() {
       localStorage.removeItem('asp_api_token');
       this.auth.token = '';
-      window.location.href = '/static/login.html';
+      window.location.href = withBase('/static/login.html');
     },
     loadFromCache() {
       try {
@@ -104,7 +116,7 @@ function app() {
       return next;
     },
     async apiFetch(url, options = {}) {
-      const res = await fetch(url, { ...options, headers: this.authHeaders(options.headers || {}) });
+      const res = await fetch(withBase(url), { ...options, headers: this.authHeaders(options.headers || {}) });
       if (res.status === 401) this.showToast('鉴权失败，请检查 API Token');
       return res;
     },

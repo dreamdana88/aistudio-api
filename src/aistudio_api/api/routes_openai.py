@@ -23,6 +23,8 @@ MODELS = [
     {"id": "gemma-4-31b-it", "object": "model", "created": 1700000000, "owned_by": "google"},
     {"id": "gemma-4-26b-a4b-it", "object": "model", "created": 1700000000, "owned_by": "google"},
     # Gemini 3 系列
+    {"id": "gemini-3.8-flash", "object": "model", "created": 1700000000, "owned_by": "google"},
+    {"id": "gemini-3.7-flash", "object": "model", "created": 1700000000, "owned_by": "google"},
     {"id": "gemini-3-flash-preview", "object": "model", "created": 1700000000, "owned_by": "google"},
     {"id": "gemini-3.5-flash", "object": "model", "created": 1700000000, "owned_by": "google"},
     {"id": "gemini-3.1-pro-preview", "object": "model", "created": 1700000000, "owned_by": "google"},

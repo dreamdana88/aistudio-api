@@ -7,7 +7,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -110,14 +110,21 @@ if os.path.isdir(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
+def _public_path(request: Request, path: str) -> str:
+    prefix = (request.headers.get("x-forwarded-prefix") or "").rstrip("/")
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{prefix}{path}"
+
+
 @app.get("/")
-async def root():
-    return RedirectResponse(url="/static/index.html")
+async def root(request: Request):
+    return RedirectResponse(url=_public_path(request, "/static/index.html"))
 
 
 @app.get("/login")
-async def login_page():
-    return RedirectResponse(url="/static/login.html")
+async def login_page(request: Request):
+    return RedirectResponse(url=_public_path(request, "/static/login.html"))
 
 
 @app.get("/auth/check")

@@ -5,7 +5,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>登录 - AI Studio Proxy</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <script>window.APP_BASE = (location.pathname.match(/^\/aistudio(?=\/|$)/) || [''])[0];</script>
+  <link rel="stylesheet" href="style.css">
   <style>
     body {
       display: flex;
@@ -201,7 +202,8 @@
 
           try {
             // 调用受保护端点验证 token
-            const res = await fetch('/auth/verify', {
+            const base = window.APP_BASE || '';
+            const res = await fetch(base + '/auth/verify', {
               headers: {
                 'Authorization': `Bearer ${token}`
               }
@@ -210,7 +212,7 @@
             if (res.ok) {
               // 登录成功，保存 token 并跳转
               localStorage.setItem('asp_api_token', token);
-              window.location.href = '/';
+              window.location.href = base + '/static/index.html';
             } else if (res.status === 401) {
               this.error = 'Token 无效，请检查后重试';
             } else {
@@ -225,7 +227,7 @@
       }
     }
   </script>
-  <script defer src="/static/alpine.min.js"></script>
+  <script defer src="alpine.min.js"></script>
 </body>
 
 </html>
