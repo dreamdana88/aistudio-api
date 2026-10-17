@@ -16,21 +16,23 @@ Fork 自 [wilderye/aistudio-api](https://github.com/wilderye/aistudio-api)，核
 - Linux + Docker（或 1Panel）
 - 2 核 / 2.5 GB 能跑，内存偏紧；长期使用更稳的是 4 GB，并准备约 2 GB Swap
 - 一个已能打开 AI Studio 的 Google 账号（建议小号）
-- API 走 HTTPS 反代；noVNC 只走 SSH 隧道，不要映射到公网
+- API 与远程登录画面使用两个 HTTPS 子域名。画面站点由现有 Caddy 做 Basic Auth。容器端口只绑 `127.0.0.1`
 
 ## 部署
 
-Docker 文件在 `docker/`。推荐直接用 `docker/docker-compose.deploy.yml`（API 和 noVNC 都只绑 `127.0.0.1`）。
+Docker 文件在 `docker/`。茶话会甲骨文部署用 `docker/docker-compose.deploy.yml`：API 默认 `127.0.0.1:18081`，noVNC 默认 `127.0.0.1:6080`。不要占用目标机酒馆的 `18080`，也不要再起一套 Caddy。
+
+完整步骤、Caddy 示例和并发限制见 [docker/oracle-deploy.md](docker/oracle-deploy.md)。
 
 ```bash
-openssl rand -hex 32          # 写入 .env 的 AISTUDIO_API_KEY，至少 32 位
-docker compose --env-file .env -f docker/docker-compose.deploy.yml up -d
-curl http://127.0.0.1:18080/health
+cp .env.oracle.example .env.oracle
+openssl rand -hex 32          # 写入 .env.oracle 的 AISTUDIO_API_KEY，至少 32 位
+# 再写入镜像清单 digest 和 https://LOGIN_DOMAIN:8443
+docker compose --env-file .env.oracle -f docker/docker-compose.deploy.yml up -d
+curl http://127.0.0.1:18081/health
 ```
 
-1Panel 把同一份 Compose 贴进编排，环境变量填 `AISTUDIO_API_KEY`。不要把真实密钥、Cookie、账号文件发到网上。
-
-公网上游用 `http://127.0.0.1:18080`。若挂在子路径（例如 `/aistudio/`），反代加上 `X-Forwarded-Prefix`，酒馆端点写成 `https://域名/aistudio/v1`。根路径的其他站点可以并存。
+不要把真实密钥、Cookie、账号文件发到网上。公网 API 上游是 `http://127.0.0.1:18081`。若挂在子路径（例如 `/aistudio/`），反代加上 `X-Forwarded-Prefix`，酒馆端点写成 `https://API_DOMAIN:8443/aistudio/v1`。
 
 ## 添加账号
 
@@ -38,18 +40,14 @@ curl http://127.0.0.1:18080/health
 
 ### 浏览器登录
 
-工作浏览器始终无头。登录时临时打开有头窗口，画面经 noVNC 传到你的电脑。
+工作浏览器始终无头。登录时临时打开有头窗口，画面经 noVNC 传到你的电脑。后台用接口返回的 `display_url`，不另开一套登录流程。
 
-```bash
-ssh -N -L 127.0.0.1:18080:127.0.0.1:18080 -L 127.0.0.1:6080:127.0.0.1:6080 用户@服务器
-```
-
-1. 打开 http://127.0.0.1:18080 进入后台。
+1. 用 API 密钥打开 `https://API_DOMAIN:8443`。
 2. 账号管理 → 登录账号。
-3. 打开 http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale ，在远程画面里登录 Google，直到进入 AI Studio。
+3. 点「打开远程画面」。先完成 Caddy Basic Auth，再在 Google 页面登录，直到进入 AI Studio。
 4. 成功后账号入库。登录窗口会关掉，noVNC 变黑是正常的。
 
-同一时间只能有一个登录会话。关掉 noVNC 网页不会取消登录，可重连。不要把 `6080` / `5900` 对公网开放。
+`AISTUDIO_NOVNC_PUBLIC_URL` 设为 `https://LOGIN_DOMAIN:8443`。同一时间只能有一个登录会话。关掉 noVNC 网页不会取消登录，可重连。不要把 `6080` 或 `5900` 映射到 `0.0.0.0`。未设置公网地址时，按钮才会回到 `127.0.0.1:6080`，那种情况才用 SSH 隧道。
 
 ### Cookie 导入
 
@@ -90,7 +88,7 @@ Gemini     /v1beta/models/{model}:generateContent
 还没添加账号时正常。先登录或导入 Cookie。
 
 **打不开后台 / 酒馆连不上**  
-API 默认只绑 `127.0.0.1:18080`，公网要走反代。手机不能直连 `服务器IP:18080`。VPS 上其他容器里的 `127.0.0.1` 也不是宿主机。
+API 只绑 `127.0.0.1:18081`，公网走现有 Caddy 的 `8443`。手机不要直连服务器 IP 上的 API 或 noVNC 端口。VPS 上其他容器里的 `127.0.0.1` 也不是宿主机。目标机酒馆仍占用 `18080`。
 
 **登录后 noVNC 黑屏**  
 登录浏览器已关闭，工作浏览器在无头运行，不是故障。
@@ -99,8 +97,8 @@ API 默认只绑 `127.0.0.1:18080`，公网要走反代。手机不能直连 `�
 在后台删除，或：
 
 ```bash
-curl http://127.0.0.1:18080/accounts -H "Authorization: Bearer 你的密钥"
-curl -X DELETE "http://127.0.0.1:18080/accounts/acc_xxxxxxxx" -H "Authorization: Bearer 你的密钥"
+curl http://127.0.0.1:18081/accounts -H "Authorization: Bearer 你的密钥"
+curl -X DELETE "http://127.0.0.1:18081/accounts/acc_xxxxxxxx" -H "Authorization: Bearer 你的密钥"
 ```
 
 把日志交给别人排查前，先打码 API 密钥、Cookie、`auth.json`、邮箱和服务器地址。

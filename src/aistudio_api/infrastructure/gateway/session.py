@@ -150,6 +150,8 @@ class BrowserSession:
         self._snap_key: str | None = None
         self._templates: dict[str, dict[str, Any]] = {}
         self._bootstrap_template: dict[str, Any] | None = None
+        # Sync Playwright and the one shared hook page are not safe in parallel.
+        # max_workers stays 1; generation concurrency is the asyncio semaphore.
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aistudio-browser")
 
     async def ensure_context(self):

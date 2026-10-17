@@ -1,0 +1,23 @@
+# Example sites for the existing Caddy container (community-proxy, host network, HTTPS on 8443).
+# Do not start a second Caddy. Port 443 is already taken.
+# Replace API_DOMAIN, LOGIN_DOMAIN, and the password hash before loading this into the running Caddy.
+# Generate a hash in that container, then replace the placeholder below:
+#   docker exec community-proxy caddy hash-password --plaintext 'CHOOSE-A-LONG-PASSWORD'
+# The hash here is bcrypt("replace-this-password"). It is not a credential to keep.
+
+API_DOMAIN:8443 {
+	reverse_proxy 127.0.0.1:18081 {
+		flush_interval -1
+		transport http {
+			read_timeout 600s
+			write_timeout 600s
+		}
+	}
+}
+
+LOGIN_DOMAIN:8443 {
+	basic_auth {
+		admin $2b$14$eg.cSmX9xIiEMLINOSoPpuARyuUwTIvKMvXVsub/FmSVyJg7pXhgS
+	}
+	reverse_proxy 127.0.0.1:6080
+}

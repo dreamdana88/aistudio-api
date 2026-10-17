@@ -55,16 +55,21 @@ Google AI Studio Playground reverse proxy. Supports Google Membership (Pro/Ultra
 docker run -d \
   --name aistudio-api \
   --restart unless-stopped \
-  -p 8080:8080 \
-  -v aistudio-api-data:/app/data \
-  -v aistudio-api-browser-cache:/root/.cloakbrowser \
+  -p 127.0.0.1:18081:8080 \
+  -p 127.0.0.1:6080:6080 \
+  -v aistudio-oracle-data:/app/data \
+  -v aistudio-oracle-browser-cache:/root/.cloakbrowser \
   -e AISTUDIO_API_KEY=replace-with-a-long-random-token \
   -e AISTUDIO_REQUIRE_API_KEY=1 \
-  ghcr.io/dreamdana88/aistudio-api:latest
+  -e AISTUDIO_MAX_CONCURRENCY=3 \
+  -e AISTUDIO_NOVNC_PUBLIC_URL=https://LOGIN_DOMAIN:8443 \
+  ghcr.io/dreamdana88/aistudio-api@sha256:REPLACE_WITH_MULTIARCH_MANIFEST_DIGEST
 ```
 
-For RackNerd and 1Panel deployment, HTTPS, backup, update, and rollback instructions,
-see [DEPLOYMENT.md](DEPLOYMENT.md).
+The Oracle deploy, Caddy Basic Auth, and loopback port layout are in
+[docker/oracle-deploy.md](docker/oracle-deploy.md). Publish API and noVNC on
+`127.0.0.1` only. The remote-login site is a separate HTTPS name protected by
+the existing Caddy; do not leave noVNC open without that auth.
 
 ### Login
 
