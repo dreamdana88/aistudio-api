@@ -50,14 +50,32 @@ def login_api(tmp_path, monkeypatch):
     return TestClient(app), service, store
 
 
-def test_start_returns_remote_display_url(login_api):
+def test_start_returns_remote_display_url(login_api, monkeypatch):
+    from aistudio_api.config import settings
+
+    monkeypatch.setattr(settings, "novnc_public_url", None)
     client, service, store = login_api
     first = client.post("/accounts/login/start", json={})
     assert first.status_code == 200
     body = first.json()
     assert body["session_id"]
-    assert body["display_url"].endswith("/vnc.html?autoconnect=1&resize=scale")
+    assert body["display_via"] == "ssh_tunnel"
+    assert body["display_url"] == "http://127.0.0.1:6080/vnc.html?autoconnect=1&resize=scale"
     assert body["instruction"]
+    assert store.list_accounts() == []
+
+
+def test_start_uses_public_novnc_url(login_api, monkeypatch):
+    from aistudio_api.config import settings
+
+    monkeypatch.setattr(settings, "novnc_public_url", "https://LOGIN_DOMAIN:8443/")
+    client, service, store = login_api
+    started = client.post("/accounts/login/start", json={})
+    assert started.status_code == 200
+    body = started.json()
+    assert body["display_via"] == "public"
+    assert body["display_url"] == "https://LOGIN_DOMAIN:8443/vnc.html?autoconnect=1&resize=scale"
+    assert "Google" in body["instruction"]
     assert store.list_accounts() == []
 
 

@@ -1,15 +1,21 @@
+# Oracle tea-party deploy. API and noVNC are published on the host loopback only.
+# Do not add 5900, 9222, or 9223, and do not switch this service to host networking:
+# websockify listens on 0.0.0.0 inside the container, and host mode would publish it.
+# Host memory and CPU caps are unset on purpose. The old 1800m limit was a
+# single-request budget, not a measured cap for three generations.
+
 services:
   aistudio-api:
-    image: ${AISTUDIO_IMAGE:-ghcr.io/dreamdana88/aistudio-api:latest}
-    container_name: aistudio-api
+    image: ${AISTUDIO_IMAGE:?Pin AISTUDIO_IMAGE to ghcr.io/dreamdana88/aistudio-api@sha256:<manifest-list-digest>}
+    container_name: aistudio-oracle
     restart: unless-stopped
     init: true
     ports:
-      - "127.0.0.1:${AISTUDIO_BIND_PORT:-18080}:8080"
+      - "127.0.0.1:${AISTUDIO_BIND_PORT:-18081}:8080"
       - "127.0.0.1:${AISTUDIO_NOVNC_BIND_PORT:-6080}:6080"
     volumes:
-      - aistudio-api-data:/app/data
-      - aistudio-api-browser-cache:/root/.cloakbrowser
+      - aistudio-oracle-data:/app/data
+      - aistudio-oracle-browser-cache:/root/.cloakbrowser
       - ../config.yaml:/app/config.yaml
     environment:
       AISTUDIO_PORT: "8080"
@@ -17,16 +23,19 @@ services:
       AISTUDIO_BROWSER_PORT: "9222"
       AISTUDIO_BROWSER_HEADLESS: "1"
       AISTUDIO_ACCOUNTS_DIR: "/app/data/accounts"
-      AISTUDIO_API_KEY: "${AISTUDIO_API_KEY:?Set AISTUDIO_API_KEY in the 1Panel Compose environment}"
+      AISTUDIO_API_KEY: "${AISTUDIO_API_KEY:?Set AISTUDIO_API_KEY to a new token of at least 32 characters}"
       AISTUDIO_REQUIRE_API_KEY: "1"
       AISTUDIO_PROXY: "${AISTUDIO_PROXY:-}"
-      AISTUDIO_MAX_CONCURRENCY: "${AISTUDIO_MAX_CONCURRENCY:-1}"
-      AISTUDIO_ENABLE_DISPLAY: "${AISTUDIO_ENABLE_DISPLAY:-1}"
+      AISTUDIO_MAX_CONCURRENCY: "3"
+      AISTUDIO_ENABLE_DISPLAY: "1"
       AISTUDIO_SKIP_BROWSER_WARMUP: "${AISTUDIO_SKIP_BROWSER_WARMUP:-0}"
-    mem_limit: 1800m
-    cpus: 1.75
-    shm_size: 512m
-    pids_limit: 512
+      AISTUDIO_NOVNC_PUBLIC_URL: "${AISTUDIO_NOVNC_PUBLIC_URL:?Set AISTUDIO_NOVNC_PUBLIC_URL to https://LOGIN_DOMAIN:8443}"
+      AISTUDIO_NOVNC_PORT: "6080"
+      AISTUDIO_VNC_PORT: "5900"
+      CLOAKBROWSER_CACHE_DIR: "/root/.cloakbrowser"
+      CLOAKBROWSER_AUTO_UPDATE: "false"
+    shm_size: 1gb
+    pids_limit: 1024
     logging:
       driver: json-file
       options:
@@ -40,7 +49,7 @@ services:
       retries: 3
 
 volumes:
-  aistudio-api-data:
-    name: aistudio-api-data
-  aistudio-api-browser-cache:
-    name: aistudio-api-browser-cache
+  aistudio-oracle-data:
+    name: aistudio-oracle-data
+  aistudio-oracle-browser-cache:
+    name: aistudio-oracle-browser-cache

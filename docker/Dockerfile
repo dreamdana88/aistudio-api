@@ -9,7 +9,9 @@ ENV PYTHONUNBUFFERED=1 \
     AISTUDIO_PORT=8080 \
     AISTUDIO_BROWSER=chromium \
     AISTUDIO_BROWSER_HEADLESS=1 \
-    AISTUDIO_ACCOUNTS_DIR=/app/data/accounts
+    AISTUDIO_ACCOUNTS_DIR=/app/data/accounts \
+    CLOAKBROWSER_CACHE_DIR=/root/.cloakbrowser \
+    CLOAKBROWSER_AUTO_UPDATE=false
 
 # Install system dependencies required for Camoufox and Playwright
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -73,7 +75,9 @@ COPY config.yaml .
 COPY docker/entrypoint.sh /usr/local/bin/aistudio-entrypoint
 COPY docker/p1_headed_login.py /app/docker/p1_headed_login.py
 
-# Create necessary directories
+# CloakBrowser downloads its own binary on first launch into
+# /root/.cloakbrowser (linux-arm64 on aarch64, linux-x64 on amd64).
+# A successful image build does not mean the browser has started.
 RUN mkdir -p /app/data /root/.cloakbrowser /tmp \
     && sed -i 's/\r$//' /usr/local/bin/aistudio-entrypoint /app/docker/p1_headed_login.py \
     && chmod +x /app/main.py /usr/local/bin/aistudio-entrypoint /app/docker/p1_headed_login.py
