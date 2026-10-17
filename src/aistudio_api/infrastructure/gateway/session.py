@@ -7,7 +7,6 @@ import asyncio
 import json
 import logging
 import shutil
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -150,9 +149,11 @@ class BrowserSession:
         self._snap_key: str | None = None
         self._templates: dict[str, dict[str, Any]] = {}
         self._bootstrap_template: dict[str, Any] | None = None
-        # Sync Playwright and the one shared hook page are not safe in parallel.
-        # max_workers stays 1; generation concurrency is the asyncio semaphore.
+        # Sync Playwright objects stay on this one thread. Do not raise max_workers:
+        # the hook page cannot be used from other threads. Streaming overlap comes
+        # from one XHR per request id, with this thread only running short polls.
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="aistudio-browser")
+        self._stream_pages: dict[str, Any] = {}
 
     async def ensure_context(self):
         return await self._run_sync(self._ensure_browser_sync)
@@ -262,34 +263,74 @@ class BrowserSession:
         return await self._run_sync(self._send_hooked_request_sync, body, timeout_ms)
 
     async def send_streaming_request(self, *, body: str, timeout_ms: int):
-        """Send a streaming request, yielding ("status", int) and ("chunk", bytes) events."""
-        queue = asyncio.Queue()
+        """Send a streaming request, yielding ("status", int) and ("chunk", bytes) events.
+
+        The browser thread only starts the XHR and polls it. Waiting for bytes
+        happens in the page, so other requests can start their own XHRs before
+        this one finishes. Closing this generator aborts only this request id.
+        """
         loop = asyncio.get_running_loop()
-        cancel_event = threading.Event()
+        rid = await loop.run_in_executor(
+            self._executor,
+            lambda: self._start_streaming_request_sync(body, timeout_ms),
+        )
+        deadline = time.monotonic() + (timeout_ms / 1000)
+        status_sent = False
+        caller = asyncio.current_task()
 
-        def _stream_worker():
-            try:
-                log.debug("[stream] worker started")
-                self._send_streaming_request_sync(body, timeout_ms, queue, loop, cancel_event)
-                log.debug("[stream] worker finished")
-            except Exception as e:
-                log.debug(f"[stream] worker exception: {e}")
-                loop.call_soon_threadsafe(queue.put_nowait, ("error", e))
-                loop.call_soon_threadsafe(queue.put_nowait, None)
+        def _abort_when_caller_finishes(task: asyncio.Task) -> None:
+            # Client disconnect cancels the caller while this generator is
+            # suspended at yield. That path does not await this finally, so the
+            # caller's completion itself stops only this request id.
+            del task
+            self._executor.submit(
+                lambda rid=rid: self._abort_streaming_request_sync(rid),
+            )
 
-        executor_task = loop.run_in_executor(self._executor, _stream_worker)
+        if caller is not None:
+            caller.add_done_callback(_abort_when_caller_finishes)
         try:
             while True:
-                item = await queue.get()
-                if item is None:
-                    break
-                tag, data = item
-                if tag == "error":
-                    raise data
-                yield tag, data
+                if time.monotonic() >= deadline:
+                    if not status_sent:
+                        raise RuntimeError("streaming request timeout: no response status")
+                    return
+                event = await loop.run_in_executor(
+                    self._executor,
+                    lambda rid=rid: self._poll_streaming_request_sync(rid),
+                )
+                event_type = event.get("type")
+                if event_type == "idle":
+                    remaining = deadline - time.monotonic()
+                    if remaining > 0:
+                        await asyncio.sleep(min(0.05, remaining))
+                    continue
+                if event_type == "status":
+                    status = event.get("status", 0)
+                    status_sent = True
+                    yield "status", status
+                    continue
+                if event_type == "chunk":
+                    text = event.get("text") or ""
+                    if text:
+                        yield "chunk", text.encode("utf-8")
+                    continue
+                if event_type == "error":
+                    message = event.get("message", "unknown error")
+                    raise RuntimeError(f"streaming request failed: {message}")
+                if event_type == "missing":
+                    raise RuntimeError("streaming request failed: stream state missing")
+                if event_type in ("done", "aborted"):
+                    if not status_sent:
+                        raise RuntimeError("streaming request timeout: no response status")
+                    return
         finally:
-            cancel_event.set()
-            await executor_task
+            if caller is not None:
+                caller.remove_done_callback(_abort_when_caller_finishes)
+            await loop.run_in_executor(
+                self._executor,
+                lambda rid=rid: self._abort_streaming_request_sync(rid),
+            )
 
     async def _run_sync(self, func, *args):
         loop = asyncio.get_running_loop()
@@ -389,179 +430,141 @@ class BrowserSession:
                 return url, headers
         raise RuntimeError("no captured URL available for replay")
 
-    def _send_streaming_request_sync(
-        self,
-        body: str,
-        timeout_ms: int,
-        queue: asyncio.Queue,
-        loop: asyncio.AbstractEventLoop,
-        cancel_event: threading.Event,
-    ):
-        """Sync method: sends XHR request and consumes page-side stream events."""
-        import time as _t
-        _t0 = _t.time()
-
+    def _start_streaming_request_sync(self, body: str, timeout_ms: int) -> str:
+        """Start one page XHR and return its request id without waiting for bytes."""
+        started = time.monotonic()
         page, captured_url, captured_headers = self._prepare_streaming_sync()
-        log.debug(f"[stream] prep done in {_t.time()-_t0:.1f}s, url={captured_url}")
-
-        timeout_s = timeout_ms / 1000
+        log.debug("[stream] prep done in %.1fs, url=%s", time.monotonic() - started, captured_url)
         rid = uuid.uuid4().hex[:8]
+        self._stream_pages[rid] = page
+        try:
+            # Each request gets an isolated state object keyed by rid. The XHR
+            # keeps running in the page after this call returns.
+            page.evaluate("""(args) => {
+                const rid = args.rid;
+                if (!window.__streams) window.__streams = {};
 
-        # Start XHR in page context. Each request gets an isolated state object
-        # keyed by rid, allowing multiple concurrent XHRs on the same page.
-        page.evaluate("""(args) => {
-            const rid = args.rid;
-            if (!window.__streams) window.__streams = {};
-
-            const existing = window.__streams[rid];
-            if (existing && existing.xhr && existing.xhr.readyState !== 4) {
-                try { existing.xhr.abort(); } catch (e) {}
-            }
-
-            const state = {
-                xhr: null,
-                events: [],
-                waiter: null,
-                recvPos: 0,
-                statusSent: false,
-            };
-            window.__streams[rid] = state;
-
-            function push(event) {
-                if (state.waiter) {
-                    const waiter = state.waiter;
-                    state.waiter = null;
-                    waiter(event);
-                    return;
+                const existing = window.__streams[rid];
+                if (existing && existing.xhr && existing.xhr.readyState !== 4) {
+                    try { existing.xhr.abort(); } catch (e) {}
                 }
-                state.events.push(event);
-            }
 
-            function pushStatus(xhr) {
-                if (state.statusSent || xhr.readyState < 2) return;
-                state.statusSent = true;
-                push({type: 'status', status: xhr.status || 0});
-            }
+                const state = {
+                    xhr: null,
+                    events: [],
+                    recvPos: 0,
+                    statusSent: false,
+                };
+                window.__streams[rid] = state;
 
-            function pushChunk(xhr) {
-                if (xhr.readyState < 3) return;
-                const chunk = xhr.responseText.substring(state.recvPos);
-                if (!chunk) return;
-                state.recvPos = xhr.responseText.length;
-                push({type: 'chunk', text: chunk});
-            }
-
-            if (!window.__stream_next) window.__stream_next = {};
-            window.__stream_next[rid] = function(timeoutMs) {
-                if (state.events.length) return Promise.resolve(state.events.shift());
-                return new Promise((resolve) => {
-                    let done = false;
-                    const timer = setTimeout(() => {
-                        if (done) return;
-                        done = true;
-                        if (state.waiter === finish) state.waiter = null;
-                        resolve({type: 'idle'});
-                    }, timeoutMs);
-                    const finish = (event) => {
-                        if (done) return;
-                        done = true;
-                        clearTimeout(timer);
-                        resolve(event);
-                    };
-                    state.waiter = finish;
-                });
-            };
-
-            if (!window.__stream_abort) window.__stream_abort = {};
-            window.__stream_abort[rid] = function() {
-                if (state.xhr && state.xhr.readyState !== 4) {
-                    try { state.xhr.abort(); } catch (e) {}
+                function push(event) {
+                    state.events.push(event);
                 }
-            };
 
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', args.url);
-            var h = args.headers;
-            for (var k in h) {
-                xhr.setRequestHeader(k, h[k]);
-            }
-            xhr.withCredentials = true;
-            xhr.timeout = args.timeout * 1000;
+                function pushStatus(xhr) {
+                    if (state.statusSent || xhr.readyState < 2) return;
+                    state.statusSent = true;
+                    push({type: 'status', status: xhr.status || 0});
+                }
 
-            xhr.onreadystatechange = function() {
-                pushStatus(xhr);
-                pushChunk(xhr);
-            };
-            xhr.onprogress = function() {
-                pushStatus(xhr);
-                pushChunk(xhr);
-            };
-            xhr.onload = function() {
-                pushStatus(xhr);
-                pushChunk(xhr);
-                push({type: 'done'});
-            };
-            xhr.onerror = function() {
-                push({type: 'error', message: 'network error'});
-            };
-            xhr.ontimeout = function() {
-                push({type: 'error', message: 'timeout'});
-            };
-            xhr.onabort = function() {
-                push({type: 'aborted'});
-            };
+                function pushChunk(xhr) {
+                    if (xhr.readyState < 3) return;
+                    const chunk = xhr.responseText.substring(state.recvPos);
+                    if (!chunk) return;
+                    state.recvPos = xhr.responseText.length;
+                    push({type: 'chunk', text: chunk});
+                }
 
-            state.xhr = xhr;
-            xhr.send(args.body);
-        }""", {
-            "url": captured_url,
-            "headers": captured_headers,
-            "body": body,
-            "timeout": timeout_s,
-            "rid": rid,
-        })
+                if (!window.__stream_poll) window.__stream_poll = {};
+                window.__stream_poll[rid] = function() {
+                    if (state.events.length) return state.events.shift();
+                    return {type: 'idle'};
+                };
 
-        deadline = _t.time() + timeout_s
-        status_sent = False
-        while _t.time() < deadline:
-            if cancel_event.is_set():
-                log.debug("[stream] cancellation requested for %s", rid)
-                page.evaluate("rid => { if (window.__stream_abort && window.__stream_abort[rid]) window.__stream_abort[rid](); }", rid)
-                break
+                if (!window.__stream_abort) window.__stream_abort = {};
+                window.__stream_abort[rid] = function() {
+                    if (state.xhr && state.xhr.readyState !== 4) {
+                        try { state.xhr.abort(); } catch (e) {}
+                    }
+                };
 
-            event = page.evaluate("rid => window.__stream_next[rid](250)", rid)
-            event_type = event.get("type")
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', args.url);
+                var h = args.headers;
+                for (var k in h) {
+                    xhr.setRequestHeader(k, h[k]);
+                }
+                xhr.withCredentials = true;
+                xhr.timeout = args.timeout * 1000;
 
-            if event_type == "idle":
-                continue
-            if event_type == "status":
-                status = event.get("status", 0)
-                log.debug(f"[stream] got status={status} after {_t.time()-_t0:.1f}s")
-                loop.call_soon_threadsafe(queue.put_nowait, ("status", status))
-                status_sent = True
-                continue
-            if event_type == "chunk":
-                text = event.get("text") or ""
-                if text:
-                    loop.call_soon_threadsafe(queue.put_nowait, ("chunk", text.encode("utf-8")))
-                continue
-            if event_type == "error":
-                message = event.get("message", "unknown error")
-                log.debug(f"[stream] error after {_t.time()-_t0:.1f}s: {message}")
-                loop.call_soon_threadsafe(queue.put_nowait, ("error", RuntimeError(f"streaming request failed: {message}")))
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-                return
-            if event_type in ("done", "aborted"):
-                break
+                xhr.onreadystatechange = function() {
+                    pushStatus(xhr);
+                    pushChunk(xhr);
+                };
+                xhr.onprogress = function() {
+                    pushStatus(xhr);
+                    pushChunk(xhr);
+                };
+                xhr.onload = function() {
+                    pushStatus(xhr);
+                    pushChunk(xhr);
+                    push({type: 'done'});
+                };
+                xhr.onerror = function() {
+                    push({type: 'error', message: 'network error'});
+                };
+                xhr.ontimeout = function() {
+                    push({type: 'error', message: 'timeout'});
+                };
+                xhr.onabort = function() {
+                    push({type: 'aborted'});
+                };
 
-        if not status_sent:
-            log.debug(f"[stream] timeout after {_t.time()-_t0:.1f}s before response status")
-            loop.call_soon_threadsafe(queue.put_nowait, ("error", RuntimeError("streaming request timeout: no response status")))
-            loop.call_soon_threadsafe(queue.put_nowait, None)
+                state.xhr = xhr;
+                xhr.send(args.body);
+            }""", {
+                "url": captured_url,
+                "headers": captured_headers,
+                "body": body,
+                "timeout": timeout_ms / 1000,
+                "rid": rid,
+            })
+        except Exception:
+            self._stream_pages.pop(rid, None)
+            raise
+        return rid
+
+    def _poll_streaming_request_sync(self, rid: str) -> dict:
+        """Return one queued page event. Idle means the XHR is still running."""
+        page = self._stream_pages.get(rid)
+        if page is None:
+            return {"type": "missing"}
+        try:
+            event = page.evaluate(
+                "rid => window.__stream_poll && window.__stream_poll[rid] ? window.__stream_poll[rid]() : {type: 'missing'}",
+                rid,
+            )
+        except Exception as exc:
+            log.debug("[stream] poll failed for %s: %s", rid, exc)
+            return {"type": "error", "message": str(exc)}
+        if not isinstance(event, dict):
+            return {"type": "error", "message": "invalid stream event"}
+        return event
+
+    def _abort_streaming_request_sync(self, rid: str) -> None:
+        """Abort and drop one request id. Other in-flight XHRs stay running."""
+        page = self._stream_pages.pop(rid, None)
+        if page is None:
             return
-
-        # Signal completion
-        loop.call_soon_threadsafe(queue.put_nowait, None)
+        try:
+            page.evaluate("""rid => {
+                if (window.__stream_abort && window.__stream_abort[rid]) window.__stream_abort[rid]();
+                if (window.__streams) delete window.__streams[rid];
+                if (window.__stream_poll) delete window.__stream_poll[rid];
+                if (window.__stream_abort) delete window.__stream_abort[rid];
+            }""", rid)
+        except Exception as exc:
+            log.debug("[stream] abort failed for %s: %s", rid, exc)
 
     def _prepare_streaming_sync(self):
         """Prepare page for streaming request. Returns (page, url, headers)."""

@@ -143,19 +143,12 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Create and verify multi-arch manifest
-        working-directory: ${{ runner.temp }}/digests
+        env:
+          DIGEST_DIR: ${{ runner.temp }}/digests
         run: |
           set -eu
-          count="$(find . -maxdepth 1 -type f | wc -l)"
-          if [ "$count" -ne 2 ]; then
-            echo "expected 2 architecture digests, found $count" >&2
-            find . -maxdepth 2 -type f -print >&2
-            exit 1
-          fi
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '%s@sha256:%s ' "$IMAGE" *)
-          tag="$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+          bash "$GITHUB_WORKSPACE/docker/create_multiarch_manifest.sh"
+          tag="$(python3 -c 'import json,os; print(json.loads(os.environ["DOCKER_METADATA_OUTPUT_JSON"])["tags"][0])')"
           docker buildx imagetools inspect --raw "$tag" > "$RUNNER_TEMP/manifest.json"
           IMAGE_TAG="$tag" MANIFEST_FILE="$RUNNER_TEMP/manifest.json" \
             python3 "$GITHUB_WORKSPACE/docker/verify_image_manifest.py"
