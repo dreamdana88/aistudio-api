@@ -19,6 +19,8 @@ from .schemas import ChatRequest, ImageRequest
 router = APIRouter()
 
 MODELS = [
+    # Gemini 4 系列
+    {"id": "gemini-4-argon", "object": "model", "created": 1700000000, "owned_by": "google"},
     # Gemma 4 系列
     {"id": "gemma-4-31b-it", "object": "model", "created": 1700000000, "owned_by": "google"},
     {"id": "gemma-4-26b-a4b-it", "object": "model", "created": 1700000000, "owned_by": "google"},
