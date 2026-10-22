@@ -22,6 +22,7 @@ services:
       AISTUDIO_BROWSER: "chromium"
       AISTUDIO_BROWSER_PORT: "9222"
       AISTUDIO_BROWSER_HEADLESS: "1"
+      AISTUDIO_REDUCED_MOTION: "${AISTUDIO_REDUCED_MOTION:-1}"
       AISTUDIO_ACCOUNTS_DIR: "/app/data/accounts"
       AISTUDIO_API_KEY: "${AISTUDIO_API_KEY:?Set AISTUDIO_API_KEY to a new token of at least 32 characters}"
       AISTUDIO_REQUIRE_API_KEY: "1"

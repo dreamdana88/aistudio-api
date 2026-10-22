@@ -613,6 +613,8 @@ class BrowserSession:
         self._apply_auth_file_sync()
         self._hook_page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         sync_maximize_page_window(self._hook_page)
+        if settings.reduced_motion:
+            self._hook_page.emulate_media(reduced_motion="reduce")
         log.debug(f"[timing] browser launched in {_t.time()-_t0:.1f}s")
         self._goto_aistudio_sync(self._hook_page)
         log.debug(f"[timing] page loaded in {_t.time()-_t0:.1f}s")
@@ -646,6 +648,8 @@ class BrowserSession:
 
         self._hook_page = self._ctx.pages[0] if self._ctx.pages else self._ctx.new_page()
         sync_maximize_page_window(self._hook_page)
+        if settings.reduced_motion:
+            self._hook_page.emulate_media(reduced_motion="reduce")
 
         # First, see whether the persistent profile / current context is already alive.
         try:

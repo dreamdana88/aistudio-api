@@ -156,6 +156,7 @@ class Settings:
     browser_engine: str = _load_browser_engine()
     browser_port: int = _load_int_env("AISTUDIO_BROWSER_PORT", "AISTUDIO_CAMOUFOX_PORT", default=DEFAULT_BROWSER_PORT)
     browser_headless: bool = _load_bool_env("AISTUDIO_BROWSER_HEADLESS", "AISTUDIO_CAMOUFOX_HEADLESS", default=True)
+    reduced_motion: bool = _load_bool_env("AISTUDIO_REDUCED_MOTION", default=True)
     browser_channel: str | None = os.getenv("AISTUDIO_BROWSER_CHANNEL")
     browser_executable_path: str | None = os.getenv("AISTUDIO_BROWSER_EXECUTABLE")
     browser_chromium_sandbox: bool = _load_bool_env(
